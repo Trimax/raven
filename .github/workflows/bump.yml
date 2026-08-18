@@ -1,0 +1,54 @@
+name: Bump
+
+permissions:
+  contents: write
+
+on:
+  workflow_run:
+    workflows: ["Build"]
+    types:
+      - completed
+
+jobs:
+  bump:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: 25
+          distribution: temurin
+          cache: maven
+
+      - name: Get current version from parent POM
+        id: get_version
+        run: |
+          VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Calculate next patch version
+        id: bump
+        run: |
+          OLD=${{ steps.get_version.outputs.version }}
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$OLD"
+          NEW="$MAJOR.$MINOR.$((PATCH + 1))"
+          echo "new_version=$NEW" >> $GITHUB_OUTPUT
+
+      - name: Bump project version
+        run: |
+          mvn versions:set -DnewVersion=${{ steps.bump.outputs.new_version }} -DgenerateBackupPoms=false -DprocessAllModules=true
+
+      - name: Commit and push updated versions
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "Bump version to ${{ steps.bump.outputs.new_version }}" || echo "No changes to commit"
+          git push

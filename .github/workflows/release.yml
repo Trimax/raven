@@ -1,0 +1,52 @@
+name: Release
+
+permissions:
+  contents: read
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          cache: maven
+          java-version: '25'
+          distribution: 'temurin'
+          server-id: central
+          server-username: CENTRAL_TOKEN_USERNAME
+          server-password: CENTRAL_TOKEN_PASSWORD
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase: GPG_PASSPHRASE
+
+      - name: Build & publish
+        run: |
+          mvn clean install --batch-mode | tee maven-install-all.log
+          mvn -P release --batch-mode deploy -N | tee maven-deploy-parent.log
+          mvn -P release --batch-mode deploy -pl raven-core | tee maven-deploy-core.log
+          mvn -P release --batch-mode deploy -pl raven-spring-core | tee maven-deploy-spring-core.log
+          mvn -P release --batch-mode deploy -pl raven-spring-server | tee maven-deploy-spring-server.log
+          mvn -P release --batch-mode deploy -pl raven-spring-client | tee maven-deploy-spring-client.log
+        env:
+          CENTRAL_TOKEN_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
+          CENTRAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maven-logs
+          path: |
+            maven-install-all.log
+            maven-deploy-parent.log
+            maven-deploy-core.log
+            maven-deploy-spring-core.log
+            maven-deploy-spring-server.log
+            maven-deploy-spring-client.log
