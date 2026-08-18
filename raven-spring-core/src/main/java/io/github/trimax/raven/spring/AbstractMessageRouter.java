@@ -6,7 +6,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.config.BeanPostProcessor;
-import org.springframework.util.CollectionUtils;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
@@ -98,15 +97,20 @@ public abstract class AbstractMessageRouter implements BeanPostProcessor, SmartI
 
     /**
      * Invokes all registered message handlers for the given message type.
+     * Also invokes handlers registered for the base {@link Message} type (catch-all),
+     * unless the message itself is exactly {@link Message}.
      */
     protected void invokeMessageHandlers(final Message message, final Consumer<HandlerMethod> invoker) {
-        final var handlers = messageHandlers.get(message.getClass());
-        if (CollectionUtils.isEmpty(handlers)) {
+        final var specificHandlers = messageHandlers.getOrDefault(message.getClass(), List.of());
+        final var genericHandlers = messageHandlers.getOrDefault(Message.class, List.of());
+
+        if (specificHandlers.isEmpty() && genericHandlers.isEmpty()) {
             log.debug("No handler for message type: {}", message.getClass().getSimpleName());
             return;
         }
 
-        invokeHandlers(handlers, invoker);
+        invokeHandlers(specificHandlers, invoker);
+        invokeHandlers(genericHandlers, invoker);
     }
 
     /**
