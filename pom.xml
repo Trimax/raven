@@ -41,7 +41,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <lombok.version>1.18.46</lombok.version>
         <commons-lang3.version>3.18.0</commons-lang3.version>
-        <spring.version>6.2.7</spring.version>
+        <spring.version>7.0.8</spring.version>
         <slf4j.version>2.0.18</slf4j.version>
         <awaitility.version>4.2.2</awaitility.version>
     </properties>
