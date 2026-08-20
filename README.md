@@ -3,6 +3,7 @@
 Raven is a lightweight TCP networking framework for Java. It provides a pure Java transport layer and optional Spring integration with annotation-based message routing.
 
 Named after messenger ravens — they carry your messages reliably.
+Dedicated to my friend—the best 3D artist I know: https://www.deviantart.com/rav3nway
 
 ## Features
 
