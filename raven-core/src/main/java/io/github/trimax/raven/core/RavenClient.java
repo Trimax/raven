@@ -1,12 +1,14 @@
 package io.github.trimax.raven.core;
 
+import java.io.IOException;
+import java.net.Socket;
+
 import io.github.trimax.raven.core.handler.ClientHandler;
+import io.github.trimax.raven.core.util.MeasurementUtil;
+import io.github.trimax.raven.core.validation.MessageValidator;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-
-import java.io.IOException;
-import java.net.Socket;
 
 /**
  * Pure TCP client. Connects to a {@link RavenServer}, sends messages,
@@ -81,7 +83,9 @@ public final class RavenClient {
             return;
         }
 
-        connection.send(message);
+        MessageValidator.validateOrThrow(message);
+        MeasurementUtil.measure(() -> connection.send(message),
+                duration -> log.debug("Message sent in {}ms", duration.toMillis()));
     }
 
     /**
@@ -96,6 +100,12 @@ public final class RavenClient {
             final var message = activeConnection.receive();
             if (message == null)
                 break;
+
+            final var violations = MessageValidator.validate(message);
+            if (!violations.isEmpty()) {
+                log.warn("Received invalid {}: {}", message.getClass().getSimpleName(), violations);
+                continue;
+            }
 
             handler.onMessage(message);
         }

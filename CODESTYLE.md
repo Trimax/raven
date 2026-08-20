@@ -25,6 +25,7 @@ This document defines the coding conventions used across the Raven project.
 
 ## 3. Lombok Usage
 
+- **Lombok-first**: if Lombok can generate it, use Lombok. Do not write boilerplate that an annotation covers (constructors, getters, builders, equals/hashCode, toString, loggers).
 - `@RequiredArgsConstructor` for dependency injection (never `@Autowired`).
 - `@Slf4j` for logging on every class that logs.
 - `@Getter` for exposing state; `@Setter` avoided.
@@ -57,6 +58,7 @@ This document defines the coding conventions used across the Raven project.
 - Methods: camelCase (`onConnect`, `invokeMessageHandlers`).
 - Constants: `UPPER_SNAKE_CASE` (`INITIAL_RETRY_DELAY_MS`).
 - Annotations: PascalCase matching their purpose (`@SubscribeMessage`, `@SubscribeConnect`).
+- **Unused parameters**: use `_` where the language allows (lambdas, multi-catch); otherwise name them `ignored` (e.g., `final SomeEvent ignored`).
 
 ---
 
