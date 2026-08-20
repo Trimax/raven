@@ -1,6 +1,8 @@
 package io.github.trimax.raven.core;
 
 import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.experimental.SuperBuilder;
 
 import java.io.Serial;
 import java.io.Serializable;
@@ -11,6 +13,8 @@ import java.util.UUID;
  * Every application message must extend this class.
  */
 @Getter
+@NoArgsConstructor
+@SuperBuilder(toBuilder = true)
 public abstract class Message implements Serializable {
 
     @Serial

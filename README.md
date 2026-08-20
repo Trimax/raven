@@ -3,7 +3,7 @@
 Raven is a lightweight TCP networking framework for Java. It provides a pure Java transport layer and optional Spring integration with annotation-based message routing.
 
 Named after messenger ravens — they carry your messages reliably.
-Dedicated to my friend—the best 3D artist I know: https://www.deviantart.com/rav3nway
+Dedicated to my friend — the best 3D artist I know: https://www.deviantart.com/rav3nway
 
 ## Features
 
@@ -17,10 +17,10 @@ Dedicated to my friend—the best 3D artist I know: https://www.deviantart.com/r
 
 ## Modules
 
-| Module | Description |
-|--------|-------------|
-| `raven-core` | Pure Java transport: `RavenServer`, `RavenClient`, `Message`, `Client` |
-| `raven-spring-core` | Spring base: `AbstractMessageRouter`, `HandlerMethod` |
+| Module                | Description                                                                                         |
+|-----------------------|-----------------------------------------------------------------------------------------------------|
+| `raven-core`          | Pure Java transport: `RavenServer`, `RavenClient`, `Message`, `Client`                              |
+| `raven-spring-core`   | Spring base: `AbstractMessageRouter`, `HandlerMethod`                                               |
 | `raven-spring-server` | Server-side router + annotations (`@SubscribeMessage`, `@SubscribeConnect`, `@SubscribeDisconnect`) |
 | `raven-spring-client` | Client-side router + annotations (`@SubscribeMessage`, `@SubscribeConnect`, `@SubscribeDisconnect`) |
 
@@ -48,7 +48,7 @@ Add dependency:
 </dependency>
 ```
 
-Import the auto-configuration:
+Import the autoconfiguration:
 ```java
 @SpringBootApplication
 @Import(RavenServerAutoConfiguration.class)
@@ -90,7 +90,7 @@ Add dependency:
 </dependency>
 ```
 
-Import the auto-configuration:
+Import the autoconfiguration:
 ```java
 @SpringBootApplication
 @Import(RavenClientAutoConfiguration.class)
@@ -146,7 +146,7 @@ client.connect();
 // Broadcast to all connected clients
 server.send(message);
 
-// Send to specific client(s)
+// Send a message to specific client(s)
 server.send(message, clientId);
 server.send(message, clientA, clientB);
 ```
