@@ -54,6 +54,13 @@ public final class RavenClient {
     }
 
     /**
+     * Returns whether the client is currently connected to the server.
+     */
+    public synchronized boolean isConnected() {
+        return connection != null && connection.isConnected();
+    }
+
+    /**
      * Disconnects from the server. Safe to call multiple times.
      */
     public synchronized void disconnect() {
@@ -78,21 +85,19 @@ public final class RavenClient {
      * @param message the message to send
      */
     public void send(final Message message) {
-        if (!isConnected()) {
+        // Capture the field into a method parameter to prevent NPE if disconnect() nulls it concurrently
+        send(connection, message);
+    }
+
+    private void send(final Connection currentConnection, final Message message) {
+        if (currentConnection == null || !currentConnection.isConnected()) {
             log.warn("Cannot send message: not connected");
             return;
         }
 
         MessageValidator.validateOrThrow(message);
-        MeasurementUtil.measure(() -> connection.send(message),
+        MeasurementUtil.measure(() -> currentConnection.send(message),
                 duration -> log.debug("Message sent in {}ms", duration.toMillis()));
-    }
-
-    /**
-     * Returns whether the client is currently connected to the server.
-     */
-    public boolean isConnected() {
-        return connection != null && connection.isConnected();
     }
 
     private void receiveLoop(final Connection activeConnection) {
