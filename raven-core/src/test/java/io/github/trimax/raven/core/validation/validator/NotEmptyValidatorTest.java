@@ -51,6 +51,39 @@ class NotEmptyValidatorTest {
         assertEquals("NotEmpty", result.constraint());
     }
 
+    @Test
+    void validNonEmptyObjectArray() {
+        final var result = validator.validate("field", new String[]{"a", "b"}, getAnnotation());
+        assertNull(result);
+    }
+
+    @Test
+    void invalidEmptyObjectArray() {
+        final var result = validator.validate("field", new String[0], getAnnotation());
+        assertNotNull(result);
+        assertEquals("NotEmpty", result.constraint());
+    }
+
+    @Test
+    void validNonEmptyPrimitiveArray() {
+        final var result = validator.validate("field", new int[]{1, 2, 3}, getAnnotation());
+        assertNull(result);
+    }
+
+    @Test
+    void invalidEmptyPrimitiveArray() {
+        final var result = validator.validate("field", new int[0], getAnnotation());
+        assertNotNull(result);
+        assertEquals("NotEmpty", result.constraint());
+    }
+
+    @Test
+    void invalidEmptyDoubleArray() {
+        final var result = validator.validate("field", new double[0], getAnnotation());
+        assertNotNull(result);
+        assertEquals("NotEmpty", result.constraint());
+    }
+
     private NotEmpty getAnnotation() {
         try {
             return NotEmptyValidatorTest.class.getDeclaredField("annotatedField").getAnnotation(NotEmpty.class);

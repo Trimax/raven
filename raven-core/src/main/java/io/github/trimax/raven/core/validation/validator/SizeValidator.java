@@ -2,6 +2,7 @@ package io.github.trimax.raven.core.validation.validator;
 
 import java.lang.annotation.Annotation;
 import java.util.Collection;
+import java.util.Set;
 
 import io.github.trimax.raven.core.validation.Violation;
 import io.github.trimax.raven.core.validation.annotation.Size;
@@ -15,6 +16,11 @@ public final class SizeValidator implements ConstraintValidator {
     @Override
     public Class<? extends Annotation> getAnnotationType() {
         return Size.class;
+    }
+
+    @Override
+    public Set<Class<?>> supportedTypes() {
+        return Set.of(Collection.class);
     }
 
     @Override

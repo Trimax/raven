@@ -12,8 +12,10 @@ import io.github.trimax.raven.core.validation.annotation.Email;
 import io.github.trimax.raven.core.validation.annotation.Length;
 import io.github.trimax.raven.core.validation.annotation.Min;
 import io.github.trimax.raven.core.validation.annotation.NotBlank;
+import io.github.trimax.raven.core.validation.annotation.NotEmpty;
 import io.github.trimax.raven.core.validation.annotation.NotNull;
 import io.github.trimax.raven.core.validation.annotation.Range;
+import io.github.trimax.raven.core.validation.annotation.Valid;
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
 
@@ -154,5 +156,201 @@ class MessageValidatorTest {
 
         assertEquals(0, MessageValidator.validate(message1).size());
         assertEquals(0, MessageValidator.validate(message2).size());
+    }
+
+    // --- Type compatibility tests ---
+
+    @NoArgsConstructor
+    private static class IncompatibleAnnotationMessage extends Message {
+
+        @NotBlank
+        @SuppressWarnings("unused")
+        private int notAString;
+    }
+
+    @Test
+    void incompatibleFieldTypeThrowsIllegalStateException() {
+        final var message = new IncompatibleAnnotationMessage();
+
+        final var exception = assertThrows(
+            IllegalStateException.class,
+            () -> MessageValidator.validate(message)
+        );
+
+        assertTrue(exception.getMessage().contains("NotBlank"));
+        assertTrue(exception.getMessage().contains("notAString"));
+        assertTrue(exception.getMessage().contains("int"));
+    }
+
+    // --- Array support tests ---
+
+    @NoArgsConstructor
+    @AllArgsConstructor
+    private static class ArrayMessage extends Message {
+
+        @NotEmpty
+        @SuppressWarnings("unused")
+        private String[] tags;
+
+        @NotEmpty
+        @SuppressWarnings("unused")
+        private int[] scores;
+    }
+
+    @Test
+    void notEmptyValidForNonEmptyObjectArray() {
+        final var message = new ArrayMessage(new String[]{"tag1"}, new int[]{1, 2});
+
+        final List<Violation> violations = MessageValidator.validate(message);
+
+        assertEquals(0, violations.size());
+    }
+
+    @Test
+    void notEmptyInvalidForEmptyObjectArray() {
+        final var message = new ArrayMessage(new String[0], new int[]{1});
+
+        final List<Violation> violations = MessageValidator.validate(message);
+
+        assertEquals(1, violations.size());
+        assertEquals("tags", violations.getFirst().fieldName());
+        assertEquals("NotEmpty", violations.getFirst().constraint());
+    }
+
+    @Test
+    void notEmptyInvalidForEmptyPrimitiveArray() {
+        final var message = new ArrayMessage(new String[]{"ok"}, new int[0]);
+
+        final List<Violation> violations = MessageValidator.validate(message);
+
+        assertEquals(1, violations.size());
+        assertEquals("scores", violations.getFirst().fieldName());
+    }
+
+    @Test
+    void notEmptyInvalidForNullArray() {
+        final var message = new ArrayMessage(null, null);
+
+        final List<Violation> violations = MessageValidator.validate(message);
+
+        assertEquals(2, violations.size());
+    }
+
+    // --- @Valid recursive validation tests ---
+
+    @NoArgsConstructor
+    @AllArgsConstructor
+    private static class NestedData {
+
+        @NotBlank
+        @SuppressWarnings("unused")
+        private String name;
+
+        @Min(1)
+        @SuppressWarnings("unused")
+        private int age;
+    }
+
+    @NoArgsConstructor
+    @AllArgsConstructor
+    private static class MessageWithNestedValid extends Message {
+
+        @NotNull
+        @Valid
+        @SuppressWarnings("unused")
+        private NestedData data;
+    }
+
+    @NoArgsConstructor
+    @AllArgsConstructor
+    private static class MessageWithNestedNoValid extends Message {
+
+        @SuppressWarnings("unused")
+        private NestedData data;
+    }
+
+    @Test
+    void validRecursivelyValidatesNestedObject() {
+        final var message = new MessageWithNestedValid(new NestedData("", 0));
+
+        final List<Violation> violations = MessageValidator.validate(message);
+
+        assertEquals(2, violations.size());
+        assertTrue(violations.stream().anyMatch(v -> "data.name".equals(v.fieldName())));
+        assertTrue(violations.stream().anyMatch(v -> "data.age".equals(v.fieldName())));
+    }
+
+    @Test
+    void validNestedObjectPassesWhenValid() {
+        final var message = new MessageWithNestedValid(new NestedData("John", 25));
+
+        final List<Violation> violations = MessageValidator.validate(message);
+
+        assertEquals(0, violations.size());
+    }
+
+    @Test
+    void validNullNestedObjectSkipsRecursion() {
+        final var message = new MessageWithNestedValid(null);
+
+        final List<Violation> violations = MessageValidator.validate(message);
+
+        // Only @NotNull violation, no recursion into null
+        assertEquals(1, violations.size());
+        assertEquals("data", violations.getFirst().fieldName());
+        assertEquals("NotNull", violations.getFirst().constraint());
+    }
+
+    @Test
+    void withoutValidAnnotationNestedObjectIsNotValidated() {
+        final var message = new MessageWithNestedNoValid(new NestedData("", 0));
+
+        final List<Violation> violations = MessageValidator.validate(message);
+
+        assertEquals(0, violations.size());
+    }
+
+    // --- Deeply nested @Valid ---
+
+    @NoArgsConstructor
+    @AllArgsConstructor
+    private static class Address {
+
+        @NotBlank
+        @SuppressWarnings("unused")
+        private String city;
+    }
+
+    @NoArgsConstructor
+    @AllArgsConstructor
+    private static class Person {
+
+        @NotBlank
+        @SuppressWarnings("unused")
+        private String name;
+
+        @Valid
+        @SuppressWarnings("unused")
+        private Address address;
+    }
+
+    @NoArgsConstructor
+    @AllArgsConstructor
+    private static class DeeplyNestedMessage extends Message {
+
+        @Valid
+        @SuppressWarnings("unused")
+        private Person person;
+    }
+
+    @Test
+    void validRecursivelyValidatesDeeplyNestedObjects() {
+        final var message = new DeeplyNestedMessage(new Person("", new Address("")));
+
+        final List<Violation> violations = MessageValidator.validate(message);
+
+        assertEquals(2, violations.size());
+        assertTrue(violations.stream().anyMatch(v -> "person.name".equals(v.fieldName())));
+        assertTrue(violations.stream().anyMatch(v -> "person.address.city".equals(v.fieldName())));
     }
 }

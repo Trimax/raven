@@ -1,7 +1,9 @@
 package io.github.trimax.raven.core.validation.validator;
 
 import java.lang.annotation.Annotation;
+import java.lang.reflect.Array;
 import java.util.Collection;
+import java.util.Set;
 
 import io.github.trimax.raven.core.util.CollectionUtil;
 import io.github.trimax.raven.core.util.StringUtil;
@@ -10,13 +12,18 @@ import io.github.trimax.raven.core.validation.annotation.NotEmpty;
 
 /**
  * Validator for the {@link NotEmpty} constraint.
- * Supports String and Collection types. Returns a violation when the value is null or empty.
+ * Supports String, Collection, and array types. Returns a violation when the value is null or empty.
  */
 public final class NotEmptyValidator implements ConstraintValidator {
 
     @Override
     public Class<? extends Annotation> getAnnotationType() {
         return NotEmpty.class;
+    }
+
+    @Override
+    public Set<Class<?>> supportedTypes() {
+        return Set.of(String.class, Collection.class, Object[].class);
     }
 
     @Override
@@ -34,6 +41,8 @@ public final class NotEmptyValidator implements ConstraintValidator {
                 return new Violation(fieldName, NotEmpty.class, "field '" + fieldName + "' must not be empty");
             }
             default -> {
+                if (value.getClass().isArray() && Array.getLength(value) == 0)
+                    return new Violation(fieldName, NotEmpty.class, "field '" + fieldName + "' must not be empty");
             }
         }
 

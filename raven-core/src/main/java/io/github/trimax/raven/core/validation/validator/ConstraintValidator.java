@@ -1,6 +1,7 @@
 package io.github.trimax.raven.core.validation.validator;
 
 import java.lang.annotation.Annotation;
+import java.util.Set;
 
 import io.github.trimax.raven.core.validation.Violation;
 
@@ -16,6 +17,17 @@ public interface ConstraintValidator {
      * @return the annotation type
      */
     Class<? extends Annotation> getAnnotationType();
+
+    /**
+     * Returns the set of field types this validator supports.
+     * If the set is empty, the validator supports any type.
+     * Used at scan time to verify that annotations are placed on compatible fields.
+     *
+     * @return supported field types, or empty set for any type
+     */
+    default Set<Class<?>> supportedTypes() {
+        return Set.of();
+    }
 
     /**
      * Validates the field value against the constraint.
