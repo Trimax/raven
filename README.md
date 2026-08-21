@@ -188,7 +188,7 @@ Raven includes a declarative, annotation-based validation framework. Annotate me
 |---------------------------|---------------------------------|------------------------------------------|
 | `@NotNull`                | Any field                       | `field != null`                          |
 | `@NotBlank`               | String                          | Not null and not blank (whitespace only) |
-| `@NotEmpty`               | String, Collection              | Not null and not empty                   |
+| `@NotEmpty`               | String, Collection, Array       | Not null and not empty                   |
 | `@Length(min, max)`       | String                          | Length within [min, max]                 |
 | `@Size(min, max)`         | Collection                      | Size within [min, max]                   |
 | `@Min(value)`             | Number (byte, short, int, long) | `field >= value`                         |
@@ -199,6 +199,7 @@ Raven includes a declarative, annotation-based validation framework. Annotate me
 | `@DecimalRange(min, max)` | Number (float, double)          | Within [min, max]                        |
 | `@Matches(pattern)`       | String                          | Matches regex pattern                    |
 | `@Email`                  | String                          | Valid email format                       |
+| `@Valid`                  | Any object field                | Recursively validates nested object      |
 
 All annotations are in `io.github.trimax.raven.core.validation.annotation`.
 
@@ -218,6 +219,28 @@ public final class LoginMessage extends Message {
     private int level;
 }
 ```
+
+### Nested Validation
+
+Use `@Valid` to recursively validate nested objects. Violation paths use dot notation.
+
+```java
+public class UserData {
+    @NotBlank
+    private String name;
+
+    @Email
+    private String email;
+}
+
+public final class RegisterMessage extends Message {
+    @NotNull
+    @Valid
+    private UserData userData;
+}
+```
+
+If `userData.name` is blank, the violation's field name will be `"userData.name"`.
 
 ### Handling Validation Errors
 

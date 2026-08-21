@@ -31,7 +31,6 @@ public final class EmailValidator implements ConstraintValidator {
             return null;
 
         final String string = (String) value;
-
         if (!string.matches(EMAIL_REGEX))
             return new Violation(fieldName, Email.class,
                 "field '" + fieldName + "' must be a valid email address, got: '" + string + "'");
