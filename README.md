@@ -12,7 +12,6 @@ Dedicated to my friend — the best 3D artist I know: https://www.deviantart.com
 - Java Serialization over ObjectStream
 - Annotation-based message dispatch for Spring applications
 - Separate server and client routers with signature validation at startup
-- Automatic reconnection with configurable retry strategies
 - Zero-configuration Spring auto-setup via properties
 
 ## Modules

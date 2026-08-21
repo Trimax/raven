@@ -8,9 +8,8 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.apache.commons.lang3.ArrayUtils;
-
 import io.github.trimax.raven.core.handler.ServerHandler;
+import io.github.trimax.raven.core.util.ArrayUtil;
 import io.github.trimax.raven.core.util.MeasurementUtil;
 import io.github.trimax.raven.core.validation.MessageValidator;
 import lombok.NonNull;
@@ -56,8 +55,7 @@ public final class RavenServer {
 
     /**
      * Stops the server and disconnects all clients.
-     * Note: per-client receive loops may still call handler.onDisconnect() after this method returns,
-     * but the client's map will already be cleared — this is harmless.
+     * Per-client receive loops will not invoke handler.onDisconnect() after the server is stopped.
      */
     public void stop() {
         final var socket = serverSocket.getAndSet(null);
@@ -88,7 +86,7 @@ public final class RavenServer {
     public void send(final Message message, final UUID... recipients) {
         MessageValidator.validateOrThrow(message);
 
-        if (ArrayUtils.isEmpty(recipients)) {
+        if (ArrayUtil.isEmpty(recipients)) {
             MeasurementUtil.measure(() -> send(message, clients.keySet()),
                 duration -> log.debug("Message {} broadcasted in {}ms", message.getId(), duration.toMillis()));
             return;
@@ -182,6 +180,6 @@ public final class RavenServer {
         clients.remove(client.getId());
         log.info("Client disconnected: {}", client.getId());
 
-        handler.onDisconnect(client);
+            handler.onDisconnect(client);
     }
 }
