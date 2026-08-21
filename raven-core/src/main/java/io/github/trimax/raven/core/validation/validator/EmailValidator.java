@@ -1,6 +1,7 @@
 package io.github.trimax.raven.core.validation.validator;
 
 import java.lang.annotation.Annotation;
+import java.util.Set;
 
 import io.github.trimax.raven.core.validation.Violation;
 import io.github.trimax.raven.core.validation.annotation.Email;
@@ -17,6 +18,11 @@ public final class EmailValidator implements ConstraintValidator {
     @Override
     public Class<? extends Annotation> getAnnotationType() {
         return Email.class;
+    }
+
+    @Override
+    public Set<Class<?>> supportedTypes() {
+        return Set.of(String.class);
     }
 
     @Override

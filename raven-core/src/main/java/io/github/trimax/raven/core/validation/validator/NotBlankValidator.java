@@ -1,6 +1,7 @@
 package io.github.trimax.raven.core.validation.validator;
 
 import java.lang.annotation.Annotation;
+import java.util.Set;
 
 import io.github.trimax.raven.core.util.StringUtil;
 import io.github.trimax.raven.core.validation.Violation;
@@ -15,6 +16,11 @@ public final class NotBlankValidator implements ConstraintValidator {
     @Override
     public Class<? extends Annotation> getAnnotationType() {
         return NotBlank.class;
+    }
+
+    @Override
+    public Set<Class<?>> supportedTypes() {
+        return Set.of(String.class);
     }
 
     @Override

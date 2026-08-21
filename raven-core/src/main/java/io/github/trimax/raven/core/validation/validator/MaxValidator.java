@@ -1,6 +1,7 @@
 package io.github.trimax.raven.core.validation.validator;
 
 import java.lang.annotation.Annotation;
+import java.util.Set;
 
 import io.github.trimax.raven.core.validation.Violation;
 import io.github.trimax.raven.core.validation.annotation.Max;
@@ -15,6 +16,11 @@ public final class MaxValidator implements ConstraintValidator {
     @Override
     public Class<? extends Annotation> getAnnotationType() {
         return Max.class;
+    }
+
+    @Override
+    public Set<Class<?>> supportedTypes() {
+        return Set.of(byte.class, Byte.class, short.class, Short.class, int.class, Integer.class, long.class, Long.class);
     }
 
     @Override

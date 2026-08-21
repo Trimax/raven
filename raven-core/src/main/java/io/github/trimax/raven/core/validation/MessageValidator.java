@@ -122,11 +122,34 @@ public final class MessageValidator {
 
         for (final ConstraintValidator validator : VALIDATORS) {
             final Annotation annotation = field.getAnnotation(validator.getAnnotationType());
-            if (annotation != null)
+            if (annotation != null) {
+                validateFieldType(field, validator);
                 constraints.add(new AnnotatedConstraint(validator, annotation));
+            }
         }
 
         return constraints;
+    }
+
+    private static void validateFieldType(final Field field, final ConstraintValidator validator) {
+        final var supportedTypes = validator.supportedTypes();
+        if (supportedTypes.isEmpty())
+            return;
+
+        final var fieldType = field.getType();
+        for (final var supportedType : supportedTypes) {
+            if (supportedType.isAssignableFrom(fieldType))
+                return;
+            if (supportedType == Object[].class && fieldType.isArray())
+                return;
+        }
+
+        throw new IllegalStateException(
+            "@" + validator.getAnnotationType().getSimpleName()
+                + " on field '" + field.getDeclaringClass().getSimpleName() + "." + field.getName()
+                + "' is not compatible with type " + fieldType.getSimpleName()
+                + ". Supported types: " + supportedTypes
+        );
     }
 
     private record FieldConstraints(Field field, List<AnnotatedConstraint> constraints) {

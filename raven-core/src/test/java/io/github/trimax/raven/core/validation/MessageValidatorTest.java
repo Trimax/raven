@@ -12,6 +12,7 @@ import io.github.trimax.raven.core.validation.annotation.Email;
 import io.github.trimax.raven.core.validation.annotation.Length;
 import io.github.trimax.raven.core.validation.annotation.Min;
 import io.github.trimax.raven.core.validation.annotation.NotBlank;
+import io.github.trimax.raven.core.validation.annotation.NotEmpty;
 import io.github.trimax.raven.core.validation.annotation.NotNull;
 import io.github.trimax.raven.core.validation.annotation.Range;
 import lombok.AllArgsConstructor;
@@ -154,5 +155,83 @@ class MessageValidatorTest {
 
         assertEquals(0, MessageValidator.validate(message1).size());
         assertEquals(0, MessageValidator.validate(message2).size());
+    }
+
+    // --- Type compatibility tests ---
+
+    @NoArgsConstructor
+    private static class IncompatibleAnnotationMessage extends Message {
+
+        @NotBlank
+        @SuppressWarnings("unused")
+        private int notAString;
+    }
+
+    @Test
+    void incompatibleFieldTypeThrowsIllegalStateException() {
+        final var message = new IncompatibleAnnotationMessage();
+
+        final var exception = assertThrows(
+            IllegalStateException.class,
+            () -> MessageValidator.validate(message)
+        );
+
+        assertTrue(exception.getMessage().contains("NotBlank"));
+        assertTrue(exception.getMessage().contains("notAString"));
+        assertTrue(exception.getMessage().contains("int"));
+    }
+
+    // --- Array support tests ---
+
+    @NoArgsConstructor
+    @AllArgsConstructor
+    private static class ArrayMessage extends Message {
+
+        @NotEmpty
+        @SuppressWarnings("unused")
+        private String[] tags;
+
+        @NotEmpty
+        @SuppressWarnings("unused")
+        private int[] scores;
+    }
+
+    @Test
+    void notEmptyValidForNonEmptyObjectArray() {
+        final var message = new ArrayMessage(new String[]{"tag1"}, new int[]{1, 2});
+
+        final List<Violation> violations = MessageValidator.validate(message);
+
+        assertEquals(0, violations.size());
+    }
+
+    @Test
+    void notEmptyInvalidForEmptyObjectArray() {
+        final var message = new ArrayMessage(new String[0], new int[]{1});
+
+        final List<Violation> violations = MessageValidator.validate(message);
+
+        assertEquals(1, violations.size());
+        assertEquals("tags", violations.getFirst().fieldName());
+        assertEquals("NotEmpty", violations.getFirst().constraint());
+    }
+
+    @Test
+    void notEmptyInvalidForEmptyPrimitiveArray() {
+        final var message = new ArrayMessage(new String[]{"ok"}, new int[0]);
+
+        final List<Violation> violations = MessageValidator.validate(message);
+
+        assertEquals(1, violations.size());
+        assertEquals("scores", violations.getFirst().fieldName());
+    }
+
+    @Test
+    void notEmptyInvalidForNullArray() {
+        final var message = new ArrayMessage(null, null);
+
+        final List<Violation> violations = MessageValidator.validate(message);
+
+        assertEquals(2, violations.size());
     }
 }
