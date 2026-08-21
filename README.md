@@ -179,6 +179,151 @@ void method()
 void method()
 ```
 
+## Message Validation
+
+Raven includes a declarative, annotation-based validation framework. Annotate message fields with constraint annotations and validation happens automatically on send and receive — no configuration needed.
+
+### Annotations
+
+| Annotation                | Applies to                      | Semantics                                |
+|---------------------------|---------------------------------|------------------------------------------|
+| `@NotNull`                | Any field                       | `field != null`                          |
+| `@NotBlank`               | String                          | Not null and not blank (whitespace only) |
+| `@NotEmpty`               | String, Collection              | Not null and not empty                   |
+| `@Length(min, max)`       | String                          | Length within [min, max]                 |
+| `@Size(min, max)`         | Collection                      | Size within [min, max]                   |
+| `@Min(value)`             | Number (byte, short, int, long) | `field >= value`                         |
+| `@Max(value)`             | Number (byte, short, int, long) | `field <= value`                         |
+| `@Range(min, max)`        | Number (byte, short, int, long) | Within [min, max]                        |
+| `@DecimalMin(value)`      | Number (float, double)          | `field >= value`                         |
+| `@DecimalMax(value)`      | Number (float, double)          | `field <= value`                         |
+| `@DecimalRange(min, max)` | Number (float, double)          | Within [min, max]                        |
+| `@Matches(pattern)`       | String                          | Matches regex pattern                    |
+| `@Email`                  | String                          | Valid email format                       |
+
+All annotations are in `io.github.trimax.raven.core.validation.annotation`.
+
+### Example
+
+```java
+public final class LoginMessage extends Message {
+    @NotBlank
+    @Length(min = 3, max = 32)
+    private String username;
+
+    @NotNull
+    @Email
+    private String email;
+
+    @Range(min = 1, max = 100)
+    private int level;
+}
+```
+
+### Handling Validation Errors
+
+```java
+try {
+    client.send(message);
+} catch (MessageValidationException e) {
+    System.err.println("Validation failed: " + e.getViolations());
+}
+```
+
+`MessageValidationRavenException` contains a list of `Violation` records, each with the field name, constraint name, and a human-readable message.
+
+### Null Handling
+
+- If a field is `null` and `@NotNull` is **not** present — all other annotations skip validation for that field (null is considered valid).
+- If a field is `null` and `@NotNull` **is** present — validation fails with a violation.
+- `@NotBlank` and `@NotEmpty` implicitly check for null — they fail on null values.
+
+### Behavior
+
+**Send path** — `RavenClient.send()` and `RavenServer.send()` call `MessageValidator.validateOrThrow()` before sending. If validation fails, a `MessageValidationRavenException` is thrown and the message is NOT sent over the network.
+
+**Receive path** — After a message is received, `MessageValidator.validate()` is called. If validation fails, a WARN is logged with the message type and violation details, and the message is silently dropped (handlers are not invoked).
+
+### Dataflow
+
+#### Server
+
+```mermaid
+---
+config:
+  flowchart:
+    curve: monotoneX
+---
+flowchart TD
+    A["<b>RavenServer.start()</b><br/><br/>Opens a server socket and starts listening"]
+    B["<b>Virtual Thread: raven-accept</b><br/><br/>Waits for incoming connections in a loop"]
+    C["<b>ServerSocket.accept()</b><br/><br/>Blocks until a new client connects"]
+    D["<b>Client</b><br/><br/>Wraps the socket and assigns a unique ID"]
+    E["<b>ServerHandler.onConnect()</b><br/><br/>Notifies the application about new client"]
+
+    A --> B --> C --> D --> E
+
+    subgraph loop ["receive loop (Virtual Thread: raven-client-UUID)"]
+        direction TB
+        G["<b>Connection.receive()</b><br/><br/>Blocks waiting for the next message"]
+        H["<b>MessageValidator.validate()</b><br/><br/>Checks message fields against constraints"]
+        I["<b>ServerHandler.onMessage()</b><br/><br/>Delivers the message to the application"]
+        J["<b>Logger</b><br/><br/>Logs a warning and drops the message"]
+
+        G -->|message| H
+        H -->|valid| I
+        H -->|invalid| J
+    end
+
+    E --> loop
+    G -->|null / error| K["<b>RavenServer.disconnectClient()</b><br/><br/>Cleans up resources and notifies the application"]
+```
+
+#### Client
+
+```mermaid
+---
+config:
+  flowchart:
+    curve: monotoneX
+---
+flowchart TD
+    A["<b>RavenClient.connect()</b><br/><br/>Opens a socket to the server"]
+    B["<b>Connection</b><br/><br/>Initializes object streams over the socket"]
+    C["<b>ClientHandler.onConnect()</b><br/><br/>Notifies the application about successful connection"]
+
+    A --> B --> C
+
+    subgraph loop ["receive loop (Virtual Thread: raven-receiver)"]
+        direction TB
+        E["<b>Connection.receive()</b><br/><br/>Blocks waiting for the next message"]
+        F["<b>MessageValidator.validate()</b><br/><br/>Checks message fields against constraints"]
+        G["<b>ClientHandler.onMessage()</b><br/><br/>Delivers the message to the application"]
+        H["<b>Logger</b><br/><br/>Logs a warning and drops the message"]
+
+        E -->|message| F
+        F -->|valid| G
+        F -->|invalid| H
+    end
+
+    C --> loop
+    E -->|null / error| I["<b>RavenClient.disconnect()</b><br/><br/>Cleans up resources and notifies the application"]
+```
+
+#### Sending a message
+
+```mermaid
+---
+config:
+  flowchart:
+    curve: monotoneX
+---
+flowchart LR
+    A["<b>RavenClient.send() / RavenServer.send()</b><br/><br/>Application wants to send a message"] --> B["<b>MessageValidator.validateOrThrow()</b><br/><br/>Checks message fields against constraints"]
+    B -->|valid| C["<b>Connection.send()</b><br/><br/>Serializes and writes to the socket"]
+    B -->|invalid| D["<b>MessageValidationRavenException</b><br/><br/>Thrown back to the caller"]
+```
+
 ## Requirements
 
 - Java 21+ (virtual threads)

@@ -1,11 +1,5 @@
 package io.github.trimax.raven.core;
 
-import io.github.trimax.raven.core.handler.ServerHandler;
-import lombok.NonNull;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.ArrayUtils;
-
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.util.Map;
@@ -13,6 +7,15 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+
+import org.apache.commons.lang3.ArrayUtils;
+
+import io.github.trimax.raven.core.handler.ServerHandler;
+import io.github.trimax.raven.core.util.MeasurementUtil;
+import io.github.trimax.raven.core.validation.MessageValidator;
+import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Pure TCP server. Accepts client connections, manages their lifecycle,
@@ -83,11 +86,19 @@ public final class RavenServer {
      * @param recipients zero or more client IDs; empty means broadcast to all
      */
     public void send(final Message message, final UUID... recipients) {
+        MessageValidator.validateOrThrow(message);
+
         if (ArrayUtils.isEmpty(recipients)) {
-            clients.values().forEach(client -> client.send(message));
+            MeasurementUtil.measure(() -> send(message, clients.keySet()),
+                duration -> log.debug("Message {} broadcasted in {}ms", message.getId(), duration.toMillis()));
             return;
         }
 
+        MeasurementUtil.measure(() -> send(message, Set.of(recipients)),
+                duration -> log.debug("Message {} sent in {}ms", message.getId(), duration.toMillis()));
+    }
+
+    private void send(final Message message, final Set<UUID> recipients) {
         for (final var recipientId : recipients) {
             final var client = clients.get(recipientId);
             if (client == null) {
@@ -153,6 +164,12 @@ public final class RavenServer {
             final var message = client.receive();
             if (message == null)
                 break;
+
+            final var violations = MessageValidator.validate(message);
+            if (!violations.isEmpty()) {
+                log.warn("Received invalid {} from {}: {}", message.getClass().getSimpleName(), client.getId(), violations);
+                continue;
+            }
 
             handler.onMessage(client, message);
         }
