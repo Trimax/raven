@@ -9,6 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import io.github.trimax.raven.core.Message;
 import io.github.trimax.raven.core.exception.MessageValidationRavenException;
+import io.github.trimax.raven.core.validation.annotation.Valid;
 import io.github.trimax.raven.core.validation.validator.ConstraintValidator;
 import io.github.trimax.raven.core.validation.validator.DecimalMaxValidator;
 import io.github.trimax.raven.core.validation.validator.DecimalMinValidator;
@@ -29,15 +30,16 @@ import lombok.NoArgsConstructor;
 /**
  * Static utility class that validates {@link Message} instances against constraint annotations.
  * <p>
- * Scans the class hierarchy (up to but excluding {@code Message.class}) for fields annotated with
- * validation constraints, caches the metadata, and evaluates validators against field values.
+ * Scans the class hierarchy for fields annotated with validation constraints,
+ * caches the metadata, and evaluates validators against field values.
+ * Supports recursive validation of nested objects via {@link Valid}.
  * <p>
  * Thread-safe: uses a {@link ConcurrentHashMap} for caching reflection metadata.
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class MessageValidator {
 
-    private static final Map<Class<?>, List<FieldConstraints>> CACHE = new ConcurrentHashMap<>();
+    private static final Map<Class<?>, List<FieldMetadata>> CACHE = new ConcurrentHashMap<>();
 
     private static final List<ConstraintValidator> VALIDATORS = List.of(
         new NotNullValidator(),
@@ -63,26 +65,8 @@ public final class MessageValidator {
      * @return list of violations (empty if valid)
      */
     public static List<Violation> validate(final Message message) {
-        final List<FieldConstraints> fieldConstraints = CACHE.computeIfAbsent(
-            message.getClass(), MessageValidator::scanFields
-        );
-
         final List<Violation> violations = new ArrayList<>();
-
-        for (final FieldConstraints fc : fieldConstraints) {
-            final Object value;
-            try {
-                value = fc.field().get(message);
-            } catch (final IllegalAccessException e) {
-                throw new RuntimeException("Failed to access field: " + fc.field().getName(), e);
-            }
-
-            for (final AnnotatedConstraint ac : fc.constraints()) {
-                final Violation violation = ac.validator().validate(fc.field().getName(), value, ac.annotation());
-                if (violation != null)
-                    violations.add(violation);
-            }
-        }
+        validateObject(message, "", violations);
 
         return violations;
     }
@@ -94,23 +78,52 @@ public final class MessageValidator {
      * @throws MessageValidationRavenException if validation fails
      */
     public static void validateOrThrow(final Message message) {
-        final List<Violation> violations = validate(message);
+        final var violations = validate(message);
         if (!violations.isEmpty())
             throw new MessageValidationRavenException(message.getClass(), violations);
     }
 
-    private static List<FieldConstraints> scanFields(final Class<?> clazz) {
-        final List<FieldConstraints> result = new ArrayList<>();
+    private static void validateObject(final Object object, final String prefix, final List<Violation> violations) {
+        final var fields = CACHE.computeIfAbsent(object.getClass(), MessageValidator::scanFields);
+
+        for (final var field : fields)
+            validateField(object, prefix, violations, field);
+    }
+
+    private static void validateField(final Object object, final String prefix, final List<Violation> violations, final FieldMetadata field) {
+        final Object value;
+        try {
+            value = field.field().get(object);
+        } catch (final IllegalAccessException e) {
+            throw new RuntimeException("Failed to access field: " + field.field().getName(), e);
+        }
+
+        final String fieldPath = prefix.isEmpty() ? field.field().getName() : prefix + "." + field.field().getName();
+        for (final var constraint : field.constraints()) {
+            final var violation = constraint.validator().validate(fieldPath, value, constraint.annotation());
+            if (violation != null)
+                violations.add(violation);
+        }
+
+        if (field.recursive() && value != null)
+            validateObject(value, fieldPath, violations);
+    }
+
+    private static List<FieldMetadata> scanFields(final Class<?> clazz) {
+        final List<FieldMetadata> result = new ArrayList<>();
 
         Class<?> current = clazz;
-        while (current != null && current != Message.class) {
+        while (current != null && current != Object.class) {
             for (final Field field : current.getDeclaredFields()) {
-                final List<AnnotatedConstraint> constraints = findConstraints(field);
-                if (!constraints.isEmpty()) {
+                final var constraints = findConstraints(field);
+                final var recursive = field.isAnnotationPresent(Valid.class);
+
+                if (!constraints.isEmpty() || recursive) {
                     field.setAccessible(true);
-                    result.add(new FieldConstraints(field, constraints));
+                    result.add(new FieldMetadata(field, constraints, recursive));
                 }
             }
+
             current = current.getSuperclass();
         }
 
@@ -120,8 +133,8 @@ public final class MessageValidator {
     private static List<AnnotatedConstraint> findConstraints(final Field field) {
         final List<AnnotatedConstraint> constraints = new ArrayList<>();
 
-        for (final ConstraintValidator validator : VALIDATORS) {
-            final Annotation annotation = field.getAnnotation(validator.getAnnotationType());
+        for (final var validator : VALIDATORS) {
+            final var annotation = field.getAnnotation(validator.getAnnotationType());
             if (annotation != null) {
                 validateFieldType(field, validator);
                 constraints.add(new AnnotatedConstraint(validator, annotation));
@@ -140,6 +153,7 @@ public final class MessageValidator {
         for (final var supportedType : supportedTypes) {
             if (supportedType.isAssignableFrom(fieldType))
                 return;
+
             if (supportedType == Object[].class && fieldType.isArray())
                 return;
         }
@@ -152,7 +166,7 @@ public final class MessageValidator {
         );
     }
 
-    private record FieldConstraints(Field field, List<AnnotatedConstraint> constraints) {
+    private record FieldMetadata(Field field, List<AnnotatedConstraint> constraints, boolean recursive) {
     }
 
     private record AnnotatedConstraint(ConstraintValidator validator, Annotation annotation) {
