@@ -353,4 +353,119 @@ class MessageValidatorTest {
         assertTrue(violations.stream().anyMatch(v -> "person.name".equals(v.fieldName())));
         assertTrue(violations.stream().anyMatch(v -> "person.address.city".equals(v.fieldName())));
     }
+
+    // --- @Valid on Collection and Array ---
+
+    @NoArgsConstructor
+    @AllArgsConstructor
+    private static class Item {
+
+        @NotBlank
+        @SuppressWarnings("unused")
+        private String name;
+    }
+
+    @NoArgsConstructor
+    @AllArgsConstructor
+    private static class MessageWithValidList extends Message {
+
+        @Valid
+        @SuppressWarnings("unused")
+        private List<Item> items;
+    }
+
+    @NoArgsConstructor
+    @AllArgsConstructor
+    private static class MessageWithValidArray extends Message {
+
+        @Valid
+        @SuppressWarnings("unused")
+        private Item[] items;
+    }
+
+    @Test
+    void validOnListValidatesEachElement() {
+        final var message = new MessageWithValidList(List.of(new Item("ok"), new Item(""), new Item("fine")));
+
+        final List<Violation> violations = MessageValidator.validate(message);
+
+        assertEquals(1, violations.size());
+        assertEquals("items[1].name", violations.getFirst().fieldName());
+    }
+
+    @Test
+    void validOnListAllValid() {
+        final var message = new MessageWithValidList(List.of(new Item("a"), new Item("b")));
+
+        final List<Violation> violations = MessageValidator.validate(message);
+
+        assertEquals(0, violations.size());
+    }
+
+    @Test
+    void validOnArrayValidatesEachElement() {
+        final var message = new MessageWithValidArray(new Item[]{new Item(""), new Item("ok")});
+
+        final List<Violation> violations = MessageValidator.validate(message);
+
+        assertEquals(1, violations.size());
+        assertEquals("items[0].name", violations.getFirst().fieldName());
+    }
+
+    @Test
+    void validOnNullListSkipsRecursion() {
+        final var message = new MessageWithValidList(null);
+
+        final List<Violation> violations = MessageValidator.validate(message);
+
+        assertEquals(0, violations.size());
+    }
+
+    // --- @Valid on nested arrays (Item[][]) ---
+
+    @NoArgsConstructor
+    @AllArgsConstructor
+    private static class MessageWithNestedArray extends Message {
+
+        @Valid
+        @SuppressWarnings("unused")
+        private Item[][] groups;
+    }
+
+    @Test
+    void validOnNestedArrayValidatesDeepElements() {
+        final var message = new MessageWithNestedArray(new Item[][]{
+            {new Item("ok"), new Item("")},
+            {new Item("fine")}
+        });
+
+        final List<Violation> violations = MessageValidator.validate(message);
+
+        assertEquals(1, violations.size());
+        assertEquals("groups[0][1].name", violations.getFirst().fieldName());
+    }
+
+    // --- @Valid on List<List<Item>> ---
+
+    @NoArgsConstructor
+    @AllArgsConstructor
+    private static class MessageWithNestedList extends Message {
+
+        @Valid
+        @SuppressWarnings("unused")
+        private List<List<Item>> groups;
+    }
+
+    @Test
+    void validOnNestedListValidatesDeepElements() {
+        final var message = new MessageWithNestedList(List.of(
+            List.of(new Item("ok")),
+            List.of(new Item(""), new Item("fine"))
+        ));
+
+        final List<Violation> violations = MessageValidator.validate(message);
+
+        assertEquals(1, violations.size());
+        assertEquals("groups[1][0].name", violations.getFirst().fieldName());
+    }
 }
