@@ -31,6 +31,28 @@ class StringUtilTest {
         assertFalse(StringUtil.isEmpty("hello"));
     }
 
+    // --- defaultIfEmpty ---
+
+    @Test
+    void defaultIfEmptyReturnsDefaultForNull() {
+        assertEquals("default", StringUtil.defaultIfEmpty(null, "default"));
+    }
+
+    @Test
+    void defaultIfEmptyReturnsDefaultForEmptyString() {
+        assertEquals("default", StringUtil.defaultIfEmpty("", "default"));
+    }
+
+    @Test
+    void defaultIfEmptyReturnsOriginalForWhitespace() {
+        assertEquals("  ", StringUtil.defaultIfEmpty("  ", "default"));
+    }
+
+    @Test
+    void defaultIfEmptyReturnsOriginalForNonEmptyString() {
+        assertEquals("hello", StringUtil.defaultIfEmpty("hello", "default"));
+    }
+
     // --- isNotEmpty ---
 
     @Test
@@ -83,6 +105,33 @@ class StringUtilTest {
     @Test
     void isBlankReturnsFalseForStringWithLeadingWhitespace() {
         assertFalse(StringUtil.isBlank("  text"));
+    }
+
+    // --- defaultIfBlank ---
+
+    @Test
+    void defaultIfBlankReturnsDefaultForNull() {
+        assertEquals("default", StringUtil.defaultIfBlank(null, "default"));
+    }
+
+    @Test
+    void defaultIfBlankReturnsDefaultForEmptyString() {
+        assertEquals("default", StringUtil.defaultIfBlank("", "default"));
+    }
+
+    @Test
+    void defaultIfBlankReturnsDefaultForWhitespace() {
+        assertEquals("default", StringUtil.defaultIfBlank("   ", "default"));
+    }
+
+    @Test
+    void defaultIfBlankReturnsOriginalForNonBlankString() {
+        assertEquals("hello", StringUtil.defaultIfBlank("hello", "default"));
+    }
+
+    @Test
+    void defaultIfBlankReturnsOriginalForStringWithLeadingWhitespace() {
+        assertEquals("  text", StringUtil.defaultIfBlank("  text", "default"));
     }
 
     // --- isNotBlank ---
@@ -185,7 +234,7 @@ class StringUtilTest {
 
     @Test
     void hasLengthBetweenReturnsFalseWhenTooLong() {
-        assertFalse(StringUtil.hasLengthBetween("toolong", 2, 5));
+        assertFalse(StringUtil.hasLengthBetween("too long", 2, 5));
     }
 
     // --- strip ---

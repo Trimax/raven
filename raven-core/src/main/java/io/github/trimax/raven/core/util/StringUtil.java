@@ -16,6 +16,13 @@ public final class StringUtil {
     }
 
     /**
+     * Returns the original string if it is not empty, otherwise returns the default value.
+     */
+    public String defaultIfEmpty(final String value, final String defaultValue) {
+        return isEmpty(value) ? defaultValue : value;
+    }
+
+    /**
      * Returns {@code true} if the string is not null and not empty.
      */
     public boolean isNotEmpty(final String value) {
@@ -27,6 +34,13 @@ public final class StringUtil {
      */
     public boolean isBlank(final String value) {
         return value == null || value.isBlank();
+    }
+
+    /**
+     * Returns the original string if it is not blank, otherwise returns the default value.
+     */
+    public String defaultIfBlank(final String value, final String defaultValue) {
+        return isBlank(value) ? defaultValue : value;
     }
 
     /**
