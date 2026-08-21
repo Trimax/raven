@@ -1,8 +1,10 @@
 package io.github.trimax.raven.core.validation;
 
 import java.lang.annotation.Annotation;
+import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -106,7 +108,39 @@ public final class MessageValidator {
         }
 
         if (field.recursive() && value != null)
-            validateObject(value, fieldPath, violations);
+            validateRecursive(value, fieldPath, violations);
+    }
+
+    private static void validateRecursive(final Object value, final String path, final List<Violation> violations) {
+        if (value instanceof Collection<?> collection) {
+            validateCollection(path, violations, collection);
+            return;
+        }
+
+        if (value.getClass().isArray()) {
+            validateArray(value, path, violations);
+            return;
+        }
+
+        validateObject(value, path, violations);
+    }
+
+    private static void validateArray(final Object value, final String path, final List<Violation> violations) {
+        final int length = Array.getLength(value);
+        for (int i = 0; i < length; i++) {
+            final var element = Array.get(value, i);
+            if (element != null)
+                validateRecursive(element, path + "[" + i + "]", violations);
+        }
+    }
+
+    private static void validateCollection(final String path, final List<Violation> violations, final Collection<?> collection) {
+        int index = 0;
+        for (final var element : collection) {
+            if (element != null)
+                validateRecursive(element, path + "[" + index + "]", violations);
+            index++;
+        }
     }
 
     private static List<FieldMetadata> scanFields(final Class<?> clazz) {

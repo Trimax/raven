@@ -199,7 +199,7 @@ Raven includes a declarative, annotation-based validation framework. Annotate me
 | `@DecimalRange(min, max)` | Number (float, double)          | Within [min, max]                        |
 | `@Matches(pattern)`       | String                          | Matches regex pattern                    |
 | `@Email`                  | String                          | Valid email format                       |
-| `@Valid`                  | Any object field                | Recursively validates nested object      |
+| `@Valid`                  | Object, Collection, Array       | Recursively validates nested object(s)   |
 
 All annotations are in `io.github.trimax.raven.core.validation.annotation`.
 
@@ -241,6 +241,19 @@ public final class RegisterMessage extends Message {
 ```
 
 If `userData.name` is blank, the violation's field name will be `"userData.name"`.
+
+`@Valid` also works on `Collection` and array fields — each element is validated with an indexed path:
+
+```java
+public final class BatchMessage extends Message {
+    @Valid
+    private List<UserData> users;
+}
+```
+
+If `users[2].email` is invalid, the violation's field name will be `"users[2].email"`.
+
+Nested collections and arrays are supported recursively — e.g. `@Valid` on `Item[][]` or `List<List<Item>>` produces paths like `"groups[0][1].name"`.
 
 ### Handling Validation Errors
 
