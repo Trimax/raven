@@ -1,12 +1,12 @@
 package io.github.trimax.raven.core;
 
-import lombok.Getter;
-import lombok.extern.slf4j.Slf4j;
-
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Encapsulates a TCP socket connection with object stream I/O.
@@ -16,24 +16,29 @@ import java.net.Socket;
 final class Connection {
 
     private final Socket socket;
-    private final ObjectOutputStream outputStream;
+    private final AtomicBoolean connected;
     private final ObjectInputStream inputStream;
-
-    @Getter
-    private volatile boolean connected;
+    private final ObjectOutputStream outputStream;
 
     Connection(final Socket socket) throws IOException {
         this.socket = socket;
+        this.connected = new AtomicBoolean(true);
         this.outputStream = new ObjectOutputStream(socket.getOutputStream());
         this.inputStream = new ObjectInputStream(socket.getInputStream());
-        this.connected = true;
+    }
+
+    /**
+     * Returns whether this connection is still active.
+     */
+    boolean isConnected() {
+        return connected.get();
     }
 
     /**
      * Sends a message over this connection. Thread-safe.
      */
     synchronized void send(final Message message) {
-        if (!connected)
+        if (!connected.get())
             return;
 
         try {
@@ -60,20 +65,18 @@ final class Connection {
             log.warn("Received non-RavenMessage object: {}", object.getClass().getName());
             return null;
         } catch (final IOException | ClassNotFoundException ex) {
-            connected = false;
+            connected.set(false);
             return null;
         }
     }
 
     /**
      * Closes the connection, releasing all resources.
-     * Closing the socket also closes the associated streams.
+     * Thread-safe: only the first caller actually closes the socket.
      */
     void disconnect() {
-        if (!connected)
+        if (!connected.compareAndSet(true, false))
             return;
-
-        connected = false;
 
         try {
             socket.close();
