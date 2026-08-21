@@ -64,7 +64,7 @@ public final class RavenServer {
 
         log.info("RavenServer stopping...");
 
-        clients.values().forEach(Client::disconnect);
+        clients.values().forEach(this::disconnectClient);
         clients.clear();
 
         try {
@@ -172,14 +172,14 @@ public final class RavenServer {
             handler.onMessage(client, message);
         }
 
-        disconnectClient(client);
+        if (isRunning() && clients.remove(client.getId()) != null)
+            disconnectClient(client);
     }
 
     private void disconnectClient(final Client client) {
         client.disconnect();
-        clients.remove(client.getId());
-        log.info("Client disconnected: {}", client.getId());
+        handler.onDisconnect(client);
 
-            handler.onDisconnect(client);
+        log.info("Client disconnected: {}", client.getId());
     }
 }
