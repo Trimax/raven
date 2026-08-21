@@ -361,8 +361,8 @@ flowchart LR
 
 ## Requirements
 
-- Java 21+ (virtual threads)
-- Spring Framework 6+ (for spring modules)
+- Java 25+
+- Spring Framework 7+ (for spring modules)
 
 ## License
 
