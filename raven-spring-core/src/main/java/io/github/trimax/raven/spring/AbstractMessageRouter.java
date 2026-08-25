@@ -1,12 +1,5 @@
 package io.github.trimax.raven.spring;
 
-import io.github.trimax.raven.core.Message;
-import lombok.NonNull;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.BeansException;
-import org.springframework.beans.factory.SmartInitializingSingleton;
-import org.springframework.beans.factory.config.BeanPostProcessor;
-
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -14,6 +7,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
+
+import org.springframework.aop.support.AopUtils;
+import org.springframework.beans.BeansException;
+import org.springframework.beans.factory.SmartInitializingSingleton;
+import org.springframework.beans.factory.config.BeanPostProcessor;
+import org.springframework.core.annotation.AnnotationUtils;
+
+import io.github.trimax.raven.core.Message;
+import lombok.NonNull;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Base class for message routers that scan Spring beans for annotated handler methods.
@@ -60,24 +63,26 @@ public abstract class AbstractMessageRouter implements BeanPostProcessor, SmartI
     @Override
     public Object postProcessAfterInitialization(final @NonNull Object bean,
                                                  final @NonNull String beanName) throws BeansException {
-        for (final var method : bean.getClass().getDeclaredMethods()) {
-            final var msgAnnotation = method.getAnnotation(messageAnnotation());
+        final var targetClass = AopUtils.getTargetClass(bean);
+
+        for (final var method : targetClass.getDeclaredMethods()) {
+            final var msgAnnotation = AnnotationUtils.findAnnotation(method, messageAnnotation());
             if (msgAnnotation != null) {
                 final var messageType = getMessageType(msgAnnotation);
-                validateMessageHandler(method, bean.getClass(), messageType);
+                validateMessageHandler(method, targetClass, messageType);
                 method.setAccessible(true);
                 messageHandlers.computeIfAbsent(messageType, _ -> new ArrayList<>())
                         .add(new HandlerMethod(bean, method));
             }
 
-            if (method.isAnnotationPresent(connectAnnotation())) {
-                validateLifecycleHandler(method, bean.getClass(), "SubscribeConnect");
+            if (AnnotationUtils.findAnnotation(method, connectAnnotation()) != null) {
+                validateLifecycleHandler(method, targetClass, "SubscribeConnect");
                 method.setAccessible(true);
                 connectHandlers.add(new HandlerMethod(bean, method));
             }
 
-            if (method.isAnnotationPresent(disconnectAnnotation())) {
-                validateLifecycleHandler(method, bean.getClass(), "SubscribeDisconnect");
+            if (AnnotationUtils.findAnnotation(method, disconnectAnnotation()) != null) {
+                validateLifecycleHandler(method, targetClass, "SubscribeDisconnect");
                 method.setAccessible(true);
                 disconnectHandlers.add(new HandlerMethod(bean, method));
             }
