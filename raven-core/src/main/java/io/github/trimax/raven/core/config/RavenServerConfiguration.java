@@ -20,6 +20,10 @@ public final class RavenServerConfiguration extends AbstractRavenConfiguration {
     @NonNull
     private final ServerHandler handler;
 
+    /**
+     * Interceptors invoked in list order on each incoming message before it reaches handlers.
+     * The first interceptor that rejects (returns {@code false}) or throws stops the chain.
+     */
     @NonNull
     @Builder.Default
     private final List<ServerMessageInterceptor> interceptors = List.of();

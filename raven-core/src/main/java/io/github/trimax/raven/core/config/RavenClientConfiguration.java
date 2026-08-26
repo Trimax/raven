@@ -23,6 +23,10 @@ public final class RavenClientConfiguration extends AbstractRavenConfiguration {
     @NonNull
     private final ClientHandler handler;
 
+    /**
+     * Interceptors invoked in list order on each incoming message before it reaches handlers.
+     * The first interceptor that rejects (returns {@code false}) or throws stops the chain.
+     */
     @NonNull
     @Builder.Default
     private final List<ClientMessageInterceptor> interceptors = List.of();

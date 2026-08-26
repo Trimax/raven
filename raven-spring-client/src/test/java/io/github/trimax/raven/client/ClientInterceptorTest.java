@@ -2,7 +2,6 @@ package io.github.trimax.raven.client;
 
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -31,6 +30,7 @@ import io.github.trimax.raven.core.interceptor.ClientMessageInterceptor;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 /**
  * Integration tests verifying that {@link ClientMessageInterceptor} beans are
@@ -84,10 +84,9 @@ class ClientInterceptorTest {
         // Server broadcasts to client — interceptor should block
         server.broadcast(new PongMessage("should be blocked"));
 
-        // Wait a bit and verify handler never receives the message
-        sleep(500);
-        assertTrue(testHandler.getReceived().isEmpty(),
-                "Handler should not receive messages blocked by interceptor");
+        await().during(300, TimeUnit.MILLISECONDS)
+                .atMost(1, TimeUnit.SECONDS)
+                .until(() -> testHandler.getReceived().isEmpty());
     }
 
     @Test
@@ -102,14 +101,6 @@ class ClientInterceptorTest {
                 .until(() -> !testHandler.getReceived().isEmpty());
 
         assertEquals("should pass", testHandler.getReceived().getFirst().getContent());
-    }
-
-    private static void sleep(final long millis) {
-        try {
-            Thread.sleep(millis);
-        } catch (final InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
     }
 
     // --- Messages ---
@@ -129,11 +120,8 @@ class ClientInterceptorTest {
         @Getter
         private final List<Message> intercepted = new CopyOnWriteArrayList<>();
 
+        @Setter
         private volatile boolean block;
-
-        public void setBlock(final boolean block) {
-            this.block = block;
-        }
 
         @Override
         public boolean preHandle(final Message message) {

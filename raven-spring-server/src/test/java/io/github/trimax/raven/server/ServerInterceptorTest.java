@@ -1,7 +1,8 @@
 package io.github.trimax.raven.server;
 
 import static org.awaitility.Awaitility.await;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -28,10 +29,11 @@ import io.github.trimax.raven.core.interceptor.ServerMessageInterceptor;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 /**
  * Integration tests verifying that {@link ServerMessageInterceptor} beans are
- * picked up by the auto-configuration and applied before message dispatch.
+ * picked up by the autoconfiguration and applied before message dispatch.
  */
 @ExtendWith(SpringExtension.class)
 @ContextConfiguration(classes = ServerInterceptorTest.TestConfig.class)
@@ -54,10 +56,9 @@ class ServerInterceptorTest {
         final var client = connectClient();
         client.send(new PingMessage("should be blocked"));
 
-        // Wait a bit and verify handler never receives the message
-        sleep(500);
-        assertTrue(testHandler.getReceived().isEmpty(),
-                "Handler should not receive messages blocked by interceptor");
+        await().during(300, TimeUnit.MILLISECONDS)
+                .atMost(1, TimeUnit.SECONDS)
+                .until(() -> testHandler.getReceived().isEmpty());
 
         client.disconnect();
     }
@@ -113,14 +114,6 @@ class ServerInterceptorTest {
         return client;
     }
 
-    private static void sleep(final long millis) {
-        try {
-            Thread.sleep(millis);
-        } catch (final InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
     // --- Messages ---
 
     @Getter
@@ -138,11 +131,8 @@ class ServerInterceptorTest {
         @Getter
         private final List<Message> intercepted = new CopyOnWriteArrayList<>();
 
+        @Setter
         private volatile boolean block;
-
-        public void setBlock(final boolean block) {
-            this.block = block;
-        }
 
         @Override
         public boolean preHandle(final Client sender, final Message message) {
@@ -159,6 +149,7 @@ class ServerInterceptorTest {
         @Getter
         private final List<PingMessage> received = new CopyOnWriteArrayList<>();
 
+        @SuppressWarnings("unused")
         @SubscribeMessage(PingMessage.class)
         public void onPing(final Client sender, final PingMessage message) {
             received.add(message);

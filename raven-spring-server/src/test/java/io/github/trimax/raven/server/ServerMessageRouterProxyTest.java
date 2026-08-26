@@ -26,6 +26,8 @@ import io.github.trimax.raven.core.Client;
 import io.github.trimax.raven.core.Message;
 import io.github.trimax.raven.core.RavenClient;
 import io.github.trimax.raven.core.RavenServer;
+import io.github.trimax.raven.core.config.RavenClientConfiguration;
+import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.handler.ClientHandler;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -111,7 +113,7 @@ class ServerMessageRouterProxyTest {
     }
 
     private RavenClient connectClient() {
-        final var config = io.github.trimax.raven.core.config.RavenClientConfiguration.builder()
+        final var config = RavenClientConfiguration.builder()
                 .host("localhost")
                 .port(ravenServer.getPort())
                 .handler(new ClientHandler() {
@@ -208,7 +210,7 @@ class ServerMessageRouterProxyTest {
 
         @Bean
         RavenServer ravenServer(final ServerMessageRouter router) {
-            final var config = io.github.trimax.raven.core.config.RavenServerConfiguration.builder()
+            final var config = RavenServerConfiguration.builder()
                     .port(0)
                     .handler(router)
                     .build();

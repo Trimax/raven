@@ -30,6 +30,9 @@ public final class InterceptorUtil {
     public static boolean shouldProceed(final List<ServerMessageInterceptor> interceptors,
                                         final Client client,
                                         final Message message) {
+        if (CollectionUtil.isEmpty(interceptors))
+            return true;
+
         for (final var interceptor : interceptors)
             if (shouldReject(() -> interceptor.preHandle(client, message)))
                 return false;
@@ -46,6 +49,9 @@ public final class InterceptorUtil {
      */
     public static boolean shouldProceed(final List<ClientMessageInterceptor> interceptors,
                                         final Message message) {
+        if (CollectionUtil.isEmpty(interceptors))
+            return true;
+
         for (final var interceptor : interceptors)
             if (shouldReject(() -> interceptor.preHandle(message)))
                 return false;
