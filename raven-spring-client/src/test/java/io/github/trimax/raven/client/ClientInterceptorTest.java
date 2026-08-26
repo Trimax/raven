@@ -124,7 +124,7 @@ class ClientInterceptorTest {
         private volatile boolean block;
 
         @Override
-        public boolean preHandle(final Message message) {
+        public boolean intercept(final Message message) {
             intercepted.add(message);
             return !block;
         }
@@ -138,6 +138,7 @@ class ClientInterceptorTest {
         @Getter
         private final List<PongMessage> received = new CopyOnWriteArrayList<>();
 
+        @SuppressWarnings("unused")
         @SubscribeMessage(PongMessage.class)
         public void onPong(final PongMessage message) {
             received.add(message);

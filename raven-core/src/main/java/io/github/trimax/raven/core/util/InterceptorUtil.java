@@ -34,7 +34,7 @@ public final class InterceptorUtil {
             return true;
 
         for (final var interceptor : interceptors)
-            if (shouldReject(() -> interceptor.preHandle(client, message)))
+            if (shouldReject(() -> interceptor.intercept(client, message)))
                 return false;
 
         return true;
@@ -53,7 +53,7 @@ public final class InterceptorUtil {
             return true;
 
         for (final var interceptor : interceptors)
-            if (shouldReject(() -> interceptor.preHandle(message)))
+            if (shouldReject(() -> interceptor.intercept(message)))
                 return false;
 
         return true;

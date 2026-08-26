@@ -135,7 +135,7 @@ class ServerInterceptorTest {
         private volatile boolean block;
 
         @Override
-        public boolean preHandle(final Client sender, final Message message) {
+        public boolean intercept(final Client sender, final Message message) {
             intercepted.add(message);
             return !block;
         }

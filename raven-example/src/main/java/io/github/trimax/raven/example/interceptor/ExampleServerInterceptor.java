@@ -11,7 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public final class ExampleServerInterceptor implements ServerMessageInterceptor {
     @Override
-    public boolean preHandle(final Client sender, final Message message) {
+    public boolean intercept(final Client sender, final Message message) {
         log.info("Intercepted message: {} from {}", message, sender);
         return true;
     }
