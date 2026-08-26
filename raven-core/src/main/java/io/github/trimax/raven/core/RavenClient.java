@@ -3,7 +3,8 @@ package io.github.trimax.raven.core;
 import java.io.IOException;
 import java.net.Socket;
 
-import io.github.trimax.raven.core.handler.ClientHandler;
+import io.github.trimax.raven.core.config.RavenClientConfiguration;
+import io.github.trimax.raven.core.util.InterceptorUtil;
 import io.github.trimax.raven.core.util.MeasurementUtil;
 import io.github.trimax.raven.core.validation.MessageValidator;
 import lombok.NonNull;
@@ -12,7 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * Pure TCP client. Connects to a {@link RavenServer}, sends messages,
- * and delegates events to a {@link ClientHandler}.
+ * and delegates events to a {@link io.github.trimax.raven.core.handler.ClientHandler}.
  *
  * <p>Uses a virtual thread for the receiver loop.
  * This class has no Spring dependencies — it is a plain Java transport layer.
@@ -20,13 +21,8 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @RequiredArgsConstructor
 public final class RavenClient {
-
     @NonNull
-    private final String host;
-    private final int port;
-
-    @NonNull
-    private final ClientHandler handler;
+    private final RavenClientConfiguration configuration;
 
     private Connection connection;
     private Thread receiverThread;
@@ -39,16 +35,16 @@ public final class RavenClient {
             return;
 
         try {
-            final var socket = new Socket(host, port);
+            final var socket = new Socket(configuration.getHost(), configuration.getPort());
             connection = new Connection(socket);
 
-            log.info("RavenClient connected to {}:{}", host, port);
-            handler.onConnect();
+            log.info("RavenClient connected to {}:{}", configuration.getHost(), configuration.getPort());
+            configuration.getHandler().onConnect();
 
             final var currentConnection = connection;
             receiverThread = Thread.ofVirtual().name("raven-receiver").start(() -> receiveLoop(currentConnection));
         } catch (final IOException ex) {
-            log.warn("RavenClient failed to connect to {}:{} - {}", host, port, ex.getMessage());
+            log.warn("RavenClient failed to connect to {}:{} - {}", configuration.getHost(), configuration.getPort(), ex.getMessage());
             connection = null;
         }
     }
@@ -76,7 +72,7 @@ public final class RavenClient {
         }
 
         log.info("RavenClient disconnected");
-        handler.onDisconnect();
+        configuration.getHandler().onDisconnect();
     }
 
     /**
@@ -112,7 +108,10 @@ public final class RavenClient {
                 continue;
             }
 
-            handler.onMessage(message);
+            if (!InterceptorUtil.shouldProceed(configuration.getInterceptors(), message))
+                continue;
+
+            configuration.getHandler().onMessage(message);
         }
 
         synchronized (this) {

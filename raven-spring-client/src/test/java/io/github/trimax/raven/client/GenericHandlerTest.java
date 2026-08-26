@@ -49,19 +49,23 @@ class GenericHandlerTest {
 
     @BeforeAll
     static void startServer() {
-        server = new RavenServer(0, new ServerHandler() {
-            @Override
-            public void onConnect(final Client client) {
-            }
+        final var config = io.github.trimax.raven.core.config.RavenServerConfiguration.builder()
+                .port(0)
+                .handler(new ServerHandler() {
+                    @Override
+                    public void onConnect(final Client client) {
+                    }
 
-            @Override
-            public void onDisconnect(final Client client) {
-            }
+                    @Override
+                    public void onDisconnect(final Client client) {
+                    }
 
-            @Override
-            public void onMessage(final Client sender, final Message message) {
-            }
-        });
+                    @Override
+                    public void onMessage(final Client sender, final Message message) {
+                    }
+                })
+                .build();
+        server = new RavenServer(config);
         server.start();
     }
 
@@ -157,7 +161,12 @@ class GenericHandlerTest {
 
         @Bean
         RavenClient ravenClient(final ClientMessageRouter router) {
-            final var client = new RavenClient("localhost", server.getPort(), router);
+            final var config = io.github.trimax.raven.core.config.RavenClientConfiguration.builder()
+                    .host("localhost")
+                    .port(server.getPort())
+                    .handler(router)
+                    .build();
+            final var client = new RavenClient(config);
             client.connect();
             return client;
         }

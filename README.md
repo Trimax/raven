@@ -122,20 +122,33 @@ public final class PongHandler {
 ### 4. Without Spring (pure Java)
 
 ```java
-var server = new RavenServer(9090, new ServerHandler() {
-    public void onConnect(Client client) { }
-    public void onDisconnect(Client client) { }
-    public void onMessage(Client sender, Message message) {
-        server.send(new PongMessage(), sender.getId());
-    }
-});
+var serverConfig = RavenServerConfiguration.builder()
+    .port(9090)
+    .handler(new ServerHandler() {
+        public void onConnect(Client client) { }
+        public void onDisconnect(Client client) { }
+        public void onMessage(Client sender, Message message) {
+            server.send(new PongMessage(), sender.getId());
+        }
+    })
+    .interceptors(List.of((sender, message) -> {
+        // reject unauthenticated messages, etc.
+        return true;
+    }))
+    .build();
+var server = new RavenServer(serverConfig);
 server.start();
 
-var client = new RavenClient("localhost", 9090, new ClientHandler() {
-    public void onConnect() { client.send(new PingMessage()); }
-    public void onDisconnect() { }
-    public void onMessage(Message message) { }
-});
+var clientConfig = RavenClientConfiguration.builder()
+    .host("localhost")
+    .port(9090)
+    .handler(new ClientHandler() {
+        public void onConnect() { client.send(new PingMessage()); }
+        public void onDisconnect() { }
+        public void onMessage(Message message) { }
+    })
+    .build();
+var client = new RavenClient(clientConfig);
 client.connect();
 ```
 

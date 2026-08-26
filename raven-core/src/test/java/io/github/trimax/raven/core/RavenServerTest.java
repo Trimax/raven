@@ -8,6 +8,8 @@ import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
 
+import io.github.trimax.raven.core.config.RavenClientConfiguration;
+import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.handler.ClientHandler;
 import io.github.trimax.raven.core.handler.ServerHandler;
 
@@ -17,8 +19,13 @@ import io.github.trimax.raven.core.handler.ServerHandler;
 class RavenServerTest {
 
     @Test
+    void nullConfigurationThrowsNpe() {
+        assertThrows(NullPointerException.class, () -> new RavenServer(null));
+    }
+
+    @Test
     void startAndStop() {
-        final var server = new RavenServer(0, new NoOpServerHandler());
+        final var server = createServer(new NoOpServerHandler());
 
         server.start();
         assertTrue(server.isRunning());
@@ -30,7 +37,7 @@ class RavenServerTest {
 
     @Test
     void doubleStartIsIdempotent() {
-        final var server = new RavenServer(0, new NoOpServerHandler());
+        final var server = createServer(new NoOpServerHandler());
 
         server.start();
         server.start(); // should not throw or create duplicate listeners
@@ -41,7 +48,7 @@ class RavenServerTest {
 
     @Test
     void doubleStopIsIdempotent() {
-        final var server = new RavenServer(0, new NoOpServerHandler());
+        final var server = createServer(new NoOpServerHandler());
         server.start();
 
         server.stop();
@@ -50,20 +57,20 @@ class RavenServerTest {
 
     @Test
     void stopBeforeStartIsNoOp() {
-        final var server = new RavenServer(0, new NoOpServerHandler());
+        final var server = createServer(new NoOpServerHandler());
         assertDoesNotThrow(server::stop);
         assertFalse(server.isRunning());
     }
 
     @Test
     void getPortReturnsNegativeOneWhenNotRunning() {
-        final var server = new RavenServer(0, new NoOpServerHandler());
+        final var server = createServer(new NoOpServerHandler());
         assertEquals(-1, server.getPort());
     }
 
     @Test
     void getPortReturnsNegativeOneAfterStop() {
-        final var server = new RavenServer(0, new NoOpServerHandler());
+        final var server = createServer(new NoOpServerHandler());
         server.start();
         assertTrue(server.getPort() > 0);
 
@@ -73,7 +80,7 @@ class RavenServerTest {
 
     @Test
     void getClientsEmptyInitially() {
-        final var server = new RavenServer(0, new NoOpServerHandler());
+        final var server = createServer(new NoOpServerHandler());
         server.start();
 
         assertTrue(server.getClients().isEmpty());
@@ -82,10 +89,10 @@ class RavenServerTest {
 
     @Test
     void getClientsReflectsConnectedClients() {
-        final var server = new RavenServer(0, new NoOpServerHandler());
+        final var server = createServer(new NoOpServerHandler());
         server.start();
 
-        final var client = new RavenClient("localhost", server.getPort(), new NoOpClientHandler());
+        final var client = createClient("localhost", server.getPort(), new NoOpClientHandler());
         client.connect();
 
         await().atMost(2, TimeUnit.SECONDS).until(() -> server.getClients().size() == 1);
@@ -99,7 +106,7 @@ class RavenServerTest {
 
     @Test
     void sendToNonExistentClientLogsWarning() {
-        final var server = new RavenServer(0, new NoOpServerHandler());
+        final var server = createServer(new NoOpServerHandler());
         server.start();
 
         assertDoesNotThrow(() -> server.send(new TestMessage("hi"), java.util.UUID.randomUUID()));
@@ -109,7 +116,7 @@ class RavenServerTest {
 
     @Test
     void broadcastToEmptyServerIsNoOp() {
-        final var server = new RavenServer(0, new NoOpServerHandler());
+        final var server = createServer(new NoOpServerHandler());
         server.start();
 
         assertDoesNotThrow(() -> server.broadcast(new TestMessage("broadcast to nobody")));
@@ -120,7 +127,7 @@ class RavenServerTest {
     @Test
     void onDisconnectCalledForEachClientOnStop() {
         final var disconnected = new CopyOnWriteArrayList<Client>();
-        final var server = new RavenServer(0, new ServerHandler() {
+        final var server = createServer(new ServerHandler() {
             @Override
             public void onConnect(final Client client) {}
 
@@ -133,8 +140,8 @@ class RavenServerTest {
         server.start();
 
         final var port = server.getPort();
-        final var c1 = new RavenClient("localhost", port, new NoOpClientHandler());
-        final var c2 = new RavenClient("localhost", port, new NoOpClientHandler());
+        final var c1 = createClient("localhost", port, new NoOpClientHandler());
+        final var c2 = createClient("localhost", port, new NoOpClientHandler());
         c1.connect();
         c2.connect();
 
@@ -149,10 +156,10 @@ class RavenServerTest {
     void sendWithEmptyRecipientsIsNoOp() {
         final var received = new CopyOnWriteArrayList<Message>();
 
-        final var server = new RavenServer(0, new NoOpServerHandler());
+        final var server = createServer(new NoOpServerHandler());
         server.start();
 
-        final var client = new RavenClient("localhost", server.getPort(), new ClientHandler() {
+        final var client = createClient("localhost", server.getPort(), new ClientHandler() {
             @Override
             public void onConnect() {}
 
@@ -188,10 +195,10 @@ class RavenServerTest {
         final var received1 = new CopyOnWriteArrayList<Message>();
         final var received2 = new CopyOnWriteArrayList<Message>();
 
-        final var server = new RavenServer(0, new NoOpServerHandler());
+        final var server = createServer(new NoOpServerHandler());
         server.start();
 
-        final var client1 = new RavenClient("localhost", server.getPort(), new ClientHandler() {
+        final var client1 = createClient("localhost", server.getPort(), new ClientHandler() {
             @Override
             public void onConnect() {}
 
@@ -203,7 +210,7 @@ class RavenServerTest {
                 received1.add(message);
             }
         });
-        final var client2 = new RavenClient("localhost", server.getPort(), new ClientHandler() {
+        final var client2 = createClient("localhost", server.getPort(), new ClientHandler() {
             @Override
             public void onConnect() {}
 
@@ -230,6 +237,21 @@ class RavenServerTest {
         client1.disconnect();
         client2.disconnect();
         server.stop();
+    }
+
+    private static RavenServer createServer(final ServerHandler handler) {
+        return new RavenServer(RavenServerConfiguration.builder()
+                .port(0)
+                .handler(handler)
+                .build());
+    }
+
+    private static RavenClient createClient(final String host, final int port, final ClientHandler handler) {
+        return new RavenClient(RavenClientConfiguration.builder()
+                .host(host)
+                .port(port)
+                .handler(handler)
+                .build());
     }
 
     private static class NoOpServerHandler implements ServerHandler {

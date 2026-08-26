@@ -8,8 +8,9 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
-import io.github.trimax.raven.core.handler.ServerHandler;
+import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.util.ArrayUtil;
+import io.github.trimax.raven.core.util.InterceptorUtil;
 import io.github.trimax.raven.core.util.MeasurementUtil;
 import io.github.trimax.raven.core.validation.MessageValidator;
 import lombok.NonNull;
@@ -18,7 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * Pure TCP server. Accepts client connections, manages their lifecycle,
- * and delegates events to a {@link ServerHandler}.
+ * and delegates events to a {@link io.github.trimax.raven.core.handler.ServerHandler}.
  *
  * <p>Uses virtual threads for the acceptance loop and per-client receiver loops.
  * This class has no Spring dependencies — it is a plain Java transport layer.
@@ -27,10 +28,8 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public final class RavenServer {
 
-    private final int port;
-
     @NonNull
-    private final ServerHandler handler;
+    private final RavenServerConfiguration configuration;
 
     private final Map<UUID, Client> clients = new ConcurrentHashMap<>();
     private final AtomicReference<ServerSocket> serverSocket = new AtomicReference<>();
@@ -40,7 +39,7 @@ public final class RavenServer {
      */
     public void start() {
         try {
-            final var socket = new ServerSocket(port);
+            final var socket = new ServerSocket(configuration.getPort());
             if (!serverSocket.compareAndSet(null, socket)) {
                 socket.close();
                 return;
@@ -49,7 +48,7 @@ public final class RavenServer {
             log.info("RavenServer started on port {}", socket.getLocalPort());
             Thread.ofVirtual().name("raven-accept").start(this::acceptLoop);
         } catch (final IOException ex) {
-            log.error("Failed to start RavenServer on port {}: {}", port, ex.getMessage());
+            log.error("Failed to start RavenServer on port {}: {}", configuration.getPort(), ex.getMessage());
         }
     }
 
@@ -161,7 +160,7 @@ public final class RavenServer {
                 clients.put(client.getId(), client);
                 log.info("Client connected: {} ({})", client.getId(), clientSocket.getRemoteSocketAddress());
 
-                handler.onConnect(client);
+                configuration.getHandler().onConnect(client);
 
                 Thread.ofVirtual()
                         .name("raven-client-" + client.getId())
@@ -185,7 +184,10 @@ public final class RavenServer {
                 continue;
             }
 
-            handler.onMessage(client, message);
+            if (!InterceptorUtil.shouldProceed(configuration.getInterceptors(), client, message))
+                continue;
+
+            configuration.getHandler().onMessage(client, message);
         }
 
         if (isRunning() && clients.remove(client.getId()) != null)
@@ -194,7 +196,7 @@ public final class RavenServer {
 
     private void disconnectClient(final Client client) {
         client.disconnect();
-        handler.onDisconnect(client);
+        configuration.getHandler().onDisconnect(client);
 
         log.info("Client disconnected: {}", client.getId());
     }

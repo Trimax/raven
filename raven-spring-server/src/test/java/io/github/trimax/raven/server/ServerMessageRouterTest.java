@@ -1,13 +1,13 @@
 package io.github.trimax.raven.server;
 
-import io.github.trimax.raven.core.Client;
-import io.github.trimax.raven.core.Message;
-import io.github.trimax.raven.core.RavenClient;
-import io.github.trimax.raven.core.handler.ClientHandler;
-import io.github.trimax.raven.core.RavenServer;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
+import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -19,13 +19,14 @@ import org.springframework.stereotype.Component;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 
-import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.awaitility.Awaitility.await;
-import static org.junit.jupiter.api.Assertions.*;
+import io.github.trimax.raven.core.Client;
+import io.github.trimax.raven.core.Message;
+import io.github.trimax.raven.core.RavenClient;
+import io.github.trimax.raven.core.RavenServer;
+import io.github.trimax.raven.core.handler.ClientHandler;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 /**
  * Integration tests for {@link ServerMessageRouter} with a real Spring context.
@@ -91,16 +92,21 @@ class ServerMessageRouterTest {
     }
 
     private RavenClient connectClient() {
-        final var client = new RavenClient("localhost", ravenServer.getPort(), new ClientHandler() {
-            @Override
-            public void onConnect() {}
+        final var config = io.github.trimax.raven.core.config.RavenClientConfiguration.builder()
+                .host("localhost")
+                .port(ravenServer.getPort())
+                .handler(new ClientHandler() {
+                    @Override
+                    public void onConnect() {}
 
-            @Override
-            public void onDisconnect() {}
+                    @Override
+                    public void onDisconnect() {}
 
-            @Override
-            public void onMessage(final Message message) {}
-        });
+                    @Override
+                    public void onMessage(final Message message) {}
+                })
+                .build();
+        final var client = new RavenClient(config);
         client.connect();
         await().atMost(2, TimeUnit.SECONDS).until(client::isConnected);
         return client;
@@ -157,7 +163,11 @@ class ServerMessageRouterTest {
 
         @Bean
         RavenServer ravenServer(final ServerMessageRouter router) {
-            final var server = new RavenServer(0, router);
+            final var config = io.github.trimax.raven.core.config.RavenServerConfiguration.builder()
+                    .port(0)
+                    .handler(router)
+                    .build();
+            final var server = new RavenServer(config);
             server.start();
             return server;
         }

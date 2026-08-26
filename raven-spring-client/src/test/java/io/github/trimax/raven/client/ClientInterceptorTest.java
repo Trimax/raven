@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -25,17 +24,21 @@ import io.github.trimax.raven.core.Client;
 import io.github.trimax.raven.core.Message;
 import io.github.trimax.raven.core.RavenClient;
 import io.github.trimax.raven.core.RavenServer;
+import io.github.trimax.raven.core.config.RavenClientConfiguration;
+import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.handler.ServerHandler;
+import io.github.trimax.raven.core.interceptor.ClientMessageInterceptor;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * Integration tests for {@link ClientMessageRouter} with a real Spring context.
+ * Integration tests verifying that {@link ClientMessageInterceptor} beans are
+ * picked up by the configuration and applied before message dispatch on the client.
  */
 @ExtendWith(SpringExtension.class)
-@ContextConfiguration(classes = ClientMessageRouterIntegrationTest.TestConfig.class)
-class ClientMessageRouterIntegrationTest {
+@ContextConfiguration(classes = ClientInterceptorTest.TestConfig.class)
+class ClientInterceptorTest {
 
     private static RavenServer server;
 
@@ -45,9 +48,12 @@ class ClientMessageRouterIntegrationTest {
     @Autowired
     private TestHandler testHandler;
 
+    @Autowired
+    private BlockingInterceptor blockingInterceptor;
+
     @BeforeAll
     static void startServer() {
-        final var config = io.github.trimax.raven.core.config.RavenServerConfiguration.builder()
+        final var config = RavenServerConfiguration.builder()
                 .port(0)
                 .handler(new ServerHandler() {
                     @Override
@@ -57,10 +63,7 @@ class ClientMessageRouterIntegrationTest {
                     public void onDisconnect(final Client client) {}
 
                     @Override
-                    public void onMessage(final Client sender, final Message message) {
-                        // Echo back to client
-                        server.send(new PongMessage("pong"), sender.getId());
-                    }
+                    public void onMessage(final Client sender, final Message message) {}
                 })
                 .build();
         server = new RavenServer(config);
@@ -73,43 +76,43 @@ class ClientMessageRouterIntegrationTest {
     }
 
     @Test
-    void messageDispatchesToAnnotatedMethod() {
+    void interceptorBlocksMessage() {
         await().atMost(2, TimeUnit.SECONDS).until(ravenClient::isConnected);
+        blockingInterceptor.setBlock(true);
+        testHandler.getReceived().clear();
 
-        // Server sends a message to client
-        server.broadcast(new PongMessage("hello client"));
+        // Server broadcasts to client — interceptor should block
+        server.broadcast(new PongMessage("should be blocked"));
 
-        await().atMost(2, TimeUnit.SECONDS)
-                .until(() -> !testHandler.getReceivedMessages().isEmpty());
-
-        assertEquals("hello client", testHandler.getReceivedMessages().getFirst().getContent());
+        // Wait a bit and verify handler never receives the message
+        sleep(500);
+        assertTrue(testHandler.getReceived().isEmpty(),
+                "Handler should not receive messages blocked by interceptor");
     }
 
     @Test
-    void connectDispatchesToAnnotatedMethod() {
-        await().atMost(2, TimeUnit.SECONDS)
-                .until(() -> testHandler.getConnectCount().get() > 0);
-
-        assertTrue(testHandler.getConnectCount().get() > 0);
-    }
-
-    @Test
-    void disconnectDispatchesToAnnotatedMethod() {
+    void interceptorAllowsMessage() {
         await().atMost(2, TimeUnit.SECONDS).until(ravenClient::isConnected);
+        blockingInterceptor.setBlock(false);
+        testHandler.getReceived().clear();
 
-        ravenClient.disconnect();
+        server.broadcast(new PongMessage("should pass"));
 
         await().atMost(2, TimeUnit.SECONDS)
-                .until(() -> testHandler.getDisconnectCount().get() > 0);
+                .until(() -> !testHandler.getReceived().isEmpty());
 
-        assertTrue(testHandler.getDisconnectCount().get() > 0);
-
-        // Reconnect for other tests
-        ravenClient.connect();
-        await().atMost(2, TimeUnit.SECONDS).until(ravenClient::isConnected);
+        assertEquals("should pass", testHandler.getReceived().getFirst().getContent());
     }
 
-    // --- Test messages ---
+    private static void sleep(final long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    // --- Messages ---
 
     @Getter
     @NoArgsConstructor
@@ -118,35 +121,38 @@ class ClientMessageRouterIntegrationTest {
         private String content;
     }
 
-    // --- Test handler ---
+    // --- Interceptor ---
+
+    @Component
+    static class BlockingInterceptor implements ClientMessageInterceptor {
+
+        @Getter
+        private final List<Message> intercepted = new CopyOnWriteArrayList<>();
+
+        private volatile boolean block;
+
+        public void setBlock(final boolean block) {
+            this.block = block;
+        }
+
+        @Override
+        public boolean preHandle(final Message message) {
+            intercepted.add(message);
+            return !block;
+        }
+    }
+
+    // --- Handler ---
 
     @Component
     static class TestHandler {
 
         @Getter
-        private final List<PongMessage> receivedMessages = new CopyOnWriteArrayList<>();
+        private final List<PongMessage> received = new CopyOnWriteArrayList<>();
 
-        @Getter
-        private final AtomicInteger connectCount = new AtomicInteger(0);
-
-        @Getter
-        private final AtomicInteger disconnectCount = new AtomicInteger(0);
-
-        @SuppressWarnings("unused")
         @SubscribeMessage(PongMessage.class)
         public void onPong(final PongMessage message) {
-            receivedMessages.add(message);
-        }
-
-        @SubscribeConnect
-        public void onConnect() {
-            connectCount.incrementAndGet();
-        }
-
-        @SubscribeDisconnect
-        @SuppressWarnings("unused")
-        public void onDisconnect() {
-            disconnectCount.incrementAndGet();
+            received.add(message);
         }
     }
 
@@ -157,11 +163,12 @@ class ClientMessageRouterIntegrationTest {
     static class TestConfig {
 
         @Bean
-        RavenClient ravenClient(final ClientMessageRouter router) {
-            final var config = io.github.trimax.raven.core.config.RavenClientConfiguration.builder()
+        RavenClient ravenClient(final ClientMessageRouter router, final BlockingInterceptor interceptor) {
+            final var config = RavenClientConfiguration.builder()
                     .host("localhost")
                     .port(server.getPort())
                     .handler(router)
+                    .interceptors(List.of(interceptor))
                     .build();
             final var client = new RavenClient(config);
             client.connect();

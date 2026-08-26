@@ -12,6 +12,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import io.github.trimax.raven.core.config.RavenClientConfiguration;
+import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.handler.ClientHandler;
 import io.github.trimax.raven.core.handler.ServerHandler;
 
@@ -25,7 +27,7 @@ class RavenClientTest {
 
     @BeforeEach
     void setUp() {
-        server = new RavenServer(0, new NoOpServerHandler());
+        server = createServer(new NoOpServerHandler());
         server.start();
         port = server.getPort();
     }
@@ -36,9 +38,14 @@ class RavenClientTest {
     }
 
     @Test
+    void nullConfigurationThrowsNpe() {
+        assertThrows(NullPointerException.class, () -> new RavenClient(null));
+    }
+
+    @Test
     void connectToRunningServer() {
         final var connected = new AtomicBoolean(false);
-        final var client = new RavenClient("localhost", port, new ClientHandler() {
+        final var client = createClient("localhost", port, new ClientHandler() {
             @Override
             public void onConnect() { connected.set(true); }
 
@@ -58,7 +65,7 @@ class RavenClientTest {
 
     @Test
     void connectToNonExistentServerFails() {
-        final var client = new RavenClient("localhost", 19999, new NoOpClientHandler());
+        final var client = createClient("localhost", 19999, new NoOpClientHandler());
         client.connect();
         assertFalse(client.isConnected());
     }
@@ -66,7 +73,7 @@ class RavenClientTest {
     @Test
     void doubleConnectIsIdempotent() {
         final var connectCount = new AtomicInteger(0);
-        final var client = new RavenClient("localhost", port, new ClientHandler() {
+        final var client = createClient("localhost", port, new ClientHandler() {
             @Override
             public void onConnect() { connectCount.incrementAndGet(); }
 
@@ -87,7 +94,7 @@ class RavenClientTest {
     @Test
     void disconnectCallsHandler() {
         final var disconnected = new AtomicBoolean(false);
-        final var client = new RavenClient("localhost", port, new ClientHandler() {
+        final var client = createClient("localhost", port, new ClientHandler() {
             @Override
             public void onConnect() {}
 
@@ -109,7 +116,7 @@ class RavenClientTest {
     @Test
     void doubleDisconnectIsIdempotent() {
         final var disconnectCount = new AtomicInteger(0);
-        final var client = new RavenClient("localhost", port, new ClientHandler() {
+        final var client = createClient("localhost", port, new ClientHandler() {
             @Override
             public void onConnect() {}
 
@@ -129,20 +136,20 @@ class RavenClientTest {
 
     @Test
     void disconnectWhenNotConnectedIsNoOp() {
-        final var client = new RavenClient("localhost", port, new NoOpClientHandler());
+        final var client = createClient("localhost", port, new NoOpClientHandler());
         assertDoesNotThrow(client::disconnect);
     }
 
     @Test
     void sendWhenNotConnectedLogsWarning() {
-        final var client = new RavenClient("localhost", port, new NoOpClientHandler());
+        final var client = createClient("localhost", port, new NoOpClientHandler());
         assertDoesNotThrow(() -> client.send(new TestMessage("should not crash")));
     }
 
     @Test
     void serverShutdownTriggersClientDisconnect() throws InterruptedException {
         final var disconnectLatch = new CountDownLatch(1);
-        final var client = new RavenClient("localhost", port, new ClientHandler() {
+        final var client = createClient("localhost", port, new ClientHandler() {
             @Override
             public void onConnect() {}
 
@@ -164,7 +171,7 @@ class RavenClientTest {
 
     @Test
     void reconnectAfterDisconnect() {
-        final var client = new RavenClient("localhost", port, new NoOpClientHandler());
+        final var client = createClient("localhost", port, new NoOpClientHandler());
 
         client.connect();
         assertTrue(client.isConnected());
@@ -180,7 +187,7 @@ class RavenClientTest {
 
     @Test
     void concurrentSendDuringDisconnectDoesNotThrow() {
-        final var client = new RavenClient("localhost", port, new NoOpClientHandler());
+        final var client = createClient("localhost", port, new NoOpClientHandler());
         client.connect();
 
         await().atMost(2, TimeUnit.SECONDS).until(client::isConnected);
@@ -200,6 +207,23 @@ class RavenClientTest {
         for (final var thread : threads) {
             assertDoesNotThrow(() -> thread.join(2000));
         }
+    }
+
+    private static RavenServer createServer(final ServerHandler handler) {
+        final var config = RavenServerConfiguration.builder()
+                .port(0)
+                .handler(handler)
+                .build();
+        return new RavenServer(config);
+    }
+
+    private static RavenClient createClient(final String host, final int port, final ClientHandler handler) {
+        final var config = RavenClientConfiguration.builder()
+                .host(host)
+                .port(port)
+                .handler(handler)
+                .build();
+        return new RavenClient(config);
     }
 
     private static class NoOpServerHandler implements ServerHandler {
