@@ -12,6 +12,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import io.github.trimax.raven.core.config.RavenClientConfiguration;
+import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.handler.ClientHandler;
 import io.github.trimax.raven.core.handler.ServerHandler;
 
@@ -30,22 +32,26 @@ class RavenTransportTest {
 
     @BeforeEach
     void setUp() {
-        server = new RavenServer(0, new ServerHandler() {
-            @Override
-            public void onConnect(final Client client) {
-                connectedClients.add(client);
-            }
+        final var config = RavenServerConfiguration.builder()
+                .port(0)
+                .handler(new ServerHandler() {
+                    @Override
+                    public void onConnect(final Client client) {
+                        connectedClients.add(client);
+                    }
 
-            @Override
-            public void onDisconnect(final Client client) {
-                disconnectedClients.add(client);
-            }
+                    @Override
+                    public void onDisconnect(final Client client) {
+                        disconnectedClients.add(client);
+                    }
 
-            @Override
-            public void onMessage(final Client sender, final Message message) {
-                serverReceivedMessages.add(message);
-            }
-        });
+                    @Override
+                    public void onMessage(final Client sender, final Message message) {
+                        serverReceivedMessages.add(message);
+                    }
+                })
+                .build();
+        server = new RavenServer(config);
         server.start();
         port = server.getPort();
     }
@@ -92,7 +98,7 @@ class RavenTransportTest {
         final var receivedMessages = new CopyOnWriteArrayList<Message>();
         final var latch = new CountDownLatch(1);
 
-        final var client = new RavenClient(HOST, port, new ClientHandler() {
+        final var client = createClient(new ClientHandler() {
             @Override
             public void onConnect() {}
 
@@ -124,7 +130,7 @@ class RavenTransportTest {
         final var received2 = new CopyOnWriteArrayList<Message>();
         final var latch = new CountDownLatch(2);
 
-        final var client1 = new RavenClient(HOST, port, new ClientHandler() {
+        final var client1 = createClient(new ClientHandler() {
             @Override
             public void onConnect() {}
 
@@ -137,7 +143,7 @@ class RavenTransportTest {
                 latch.countDown();
             }
         });
-        final var client2 = new RavenClient(HOST, port, new ClientHandler() {
+        final var client2 = createClient(new ClientHandler() {
             @Override
             public void onConnect() {}
 
@@ -171,7 +177,7 @@ class RavenTransportTest {
         final var received1 = new CopyOnWriteArrayList<Message>();
         final var received2 = new CopyOnWriteArrayList<Message>();
 
-        final var client1 = new RavenClient(HOST, port, new ClientHandler() {
+        final var client1 = createClient(new ClientHandler() {
             @Override
             public void onConnect() {}
 
@@ -183,7 +189,7 @@ class RavenTransportTest {
                 received1.add(message);
             }
         });
-        final var client2 = new RavenClient(HOST, port, new ClientHandler() {
+        final var client2 = createClient(new ClientHandler() {
             @Override
             public void onConnect() {}
 
@@ -279,7 +285,7 @@ class RavenTransportTest {
         final var received2 = new CopyOnWriteArrayList<Message>();
         final var received3 = new CopyOnWriteArrayList<Message>();
 
-        final var client1 = new RavenClient(HOST, port, new ClientHandler() {
+        final var client1 = createClient(new ClientHandler() {
             @Override
             public void onConnect() {}
 
@@ -291,7 +297,7 @@ class RavenTransportTest {
                 received1.add(message);
             }
         });
-        final var client2 = new RavenClient(HOST, port, new ClientHandler() {
+        final var client2 = createClient(new ClientHandler() {
             @Override
             public void onConnect() {}
 
@@ -303,7 +309,7 @@ class RavenTransportTest {
                 received2.add(message);
             }
         });
-        final var client3 = new RavenClient(HOST, port, new ClientHandler() {
+        final var client3 = createClient(new ClientHandler() {
             @Override
             public void onConnect() {}
 
@@ -345,13 +351,26 @@ class RavenTransportTest {
 
     @Test
     void connectToNonExistentServerFails() {
-        final var client = new RavenClient(HOST, 19999, new NoOpClientHandler());
+        final var client = createClient(HOST, 19999, new NoOpClientHandler());
         client.connect();
         assertFalse(client.isConnected());
     }
 
     private RavenClient createClient() {
-        return new RavenClient(HOST, port, new NoOpClientHandler());
+        return createClient(HOST, port, new NoOpClientHandler());
+    }
+
+    private RavenClient createClient(final ClientHandler handler) {
+        return createClient(HOST, port, handler);
+    }
+
+    private static RavenClient createClient(final String host, final int port, final ClientHandler handler) {
+        final var config = RavenClientConfiguration.builder()
+                .host(host)
+                .port(port)
+                .handler(handler)
+                .build();
+        return new RavenClient(config);
     }
 
     private static class NoOpClientHandler implements ClientHandler {

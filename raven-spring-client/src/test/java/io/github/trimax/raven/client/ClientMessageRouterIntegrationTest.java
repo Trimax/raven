@@ -25,6 +25,8 @@ import io.github.trimax.raven.core.Client;
 import io.github.trimax.raven.core.Message;
 import io.github.trimax.raven.core.RavenClient;
 import io.github.trimax.raven.core.RavenServer;
+import io.github.trimax.raven.core.config.RavenClientConfiguration;
+import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.handler.ServerHandler;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -47,19 +49,23 @@ class ClientMessageRouterIntegrationTest {
 
     @BeforeAll
     static void startServer() {
-        server = new RavenServer(0, new ServerHandler() {
-            @Override
-            public void onConnect(final Client client) {}
+        final var config = RavenServerConfiguration.builder()
+                .port(0)
+                .handler(new ServerHandler() {
+                    @Override
+                    public void onConnect(final Client client) {}
 
-            @Override
-            public void onDisconnect(final Client client) {}
+                    @Override
+                    public void onDisconnect(final Client client) {}
 
-            @Override
-            public void onMessage(final Client sender, final Message message) {
-                // Echo back to client
-                server.send(new PongMessage("pong"), sender.getId());
-            }
-        });
+                    @Override
+                    public void onMessage(final Client sender, final Message message) {
+                        // Echo back to client
+                        server.send(new PongMessage("pong"), sender.getId());
+                    }
+                })
+                .build();
+        server = new RavenServer(config);
         server.start();
     }
 
@@ -154,7 +160,12 @@ class ClientMessageRouterIntegrationTest {
 
         @Bean
         RavenClient ravenClient(final ClientMessageRouter router) {
-            final var client = new RavenClient("localhost", server.getPort(), router);
+            final var config = RavenClientConfiguration.builder()
+                    .host("localhost")
+                    .port(server.getPort())
+                    .handler(router)
+                    .build();
+            final var client = new RavenClient(config);
             client.connect();
             return client;
         }

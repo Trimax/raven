@@ -18,6 +18,8 @@ import io.github.trimax.raven.core.Client;
 import io.github.trimax.raven.core.Message;
 import io.github.trimax.raven.core.RavenClient;
 import io.github.trimax.raven.core.RavenServer;
+import io.github.trimax.raven.core.config.RavenClientConfiguration;
+import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.exception.MessageValidationRavenException;
 import io.github.trimax.raven.core.handler.ClientHandler;
 import io.github.trimax.raven.core.handler.ServerHandler;
@@ -40,21 +42,25 @@ class ValidationIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        server = new RavenServer(0, new ServerHandler() {
-            @Override
-            public void onConnect(final Client client) {
-                connectedClients.add(client);
-            }
+        final var config = RavenServerConfiguration.builder()
+                .port(0)
+                .handler(new ServerHandler() {
+                    @Override
+                    public void onConnect(final Client client) {
+                        connectedClients.add(client);
+                    }
 
-            @Override
-            public void onDisconnect(final Client client) {
-            }
+                    @Override
+                    public void onDisconnect(final Client client) {
+                    }
 
-            @Override
-            public void onMessage(final Client sender, final Message message) {
-                serverReceivedMessages.add(message);
-            }
-        });
+                    @Override
+                    public void onMessage(final Client sender, final Message message) {
+                        serverReceivedMessages.add(message);
+                    }
+                })
+                .build();
+        server = new RavenServer(config);
         server.start();
         port = server.getPort();
     }
@@ -101,7 +107,7 @@ class ValidationIntegrationTest {
     void serverSendingInvalidMessageThrowsException() {
         final var clientReceivedMessages = new CopyOnWriteArrayList<Message>();
 
-        final var client = new RavenClient(HOST, port, new ClientHandler() {
+        final var client = createClient(new ClientHandler() {
             @Override
             public void onConnect() {
             }
@@ -169,7 +175,16 @@ class ValidationIntegrationTest {
     }
 
     private RavenClient createClient() {
-        return new RavenClient(HOST, port, new NoOpClientHandler());
+        return createClient(new NoOpClientHandler());
+    }
+
+    private RavenClient createClient(final ClientHandler handler) {
+        final var config = RavenClientConfiguration.builder()
+                .host(HOST)
+                .port(port)
+                .handler(handler)
+                .build();
+        return new RavenClient(config);
     }
 
     private static class NoOpClientHandler implements ClientHandler {

@@ -21,6 +21,8 @@ import io.github.trimax.raven.core.Client;
 import io.github.trimax.raven.core.Message;
 import io.github.trimax.raven.core.RavenClient;
 import io.github.trimax.raven.core.RavenServer;
+import io.github.trimax.raven.core.config.RavenClientConfiguration;
+import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.handler.ClientHandler;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -99,16 +101,21 @@ class ServerGenericHandlerTest {
     }
 
     private RavenClient connectClient() {
-        final var client = new RavenClient("localhost", ravenServer.getPort(), new ClientHandler() {
-            @Override
-            public void onConnect() {}
+        final var config = RavenClientConfiguration.builder()
+                .host("localhost")
+                .port(ravenServer.getPort())
+                .handler(new ClientHandler() {
+                    @Override
+                    public void onConnect() {}
 
-            @Override
-            public void onDisconnect() {}
+                    @Override
+                    public void onDisconnect() {}
 
-            @Override
-            public void onMessage(final Message message) {}
-        });
+                    @Override
+                    public void onMessage(final Message message) {}
+                })
+                .build();
+        final var client = new RavenClient(config);
         client.connect();
         await().atMost(2, TimeUnit.SECONDS).until(client::isConnected);
         return client;
@@ -166,7 +173,11 @@ class ServerGenericHandlerTest {
 
         @Bean
         RavenServer ravenServer(final ServerMessageRouter router) {
-            final var server = new RavenServer(0, router);
+            final var config = RavenServerConfiguration.builder()
+                    .port(0)
+                    .handler(router)
+                    .build();
+            final var server = new RavenServer(config);
             server.start();
             return server;
         }

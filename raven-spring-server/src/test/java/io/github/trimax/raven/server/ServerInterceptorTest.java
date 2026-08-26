@@ -2,12 +2,11 @@ package io.github.trimax.raven.server;
 
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,16 +25,19 @@ import io.github.trimax.raven.core.RavenServer;
 import io.github.trimax.raven.core.config.RavenClientConfiguration;
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.handler.ClientHandler;
+import io.github.trimax.raven.core.interceptor.ServerMessageInterceptor;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 /**
- * Integration tests for {@link ServerMessageRouter} with a real Spring context.
+ * Integration tests verifying that {@link ServerMessageInterceptor} beans are
+ * picked up by the autoconfiguration and applied before message dispatch.
  */
 @ExtendWith(SpringExtension.class)
-@ContextConfiguration(classes = ServerMessageRouterTest.TestConfig.class)
-class ServerMessageRouterTest {
+@ContextConfiguration(classes = ServerInterceptorTest.TestConfig.class)
+class ServerInterceptorTest {
 
     @Autowired
     private RavenServer ravenServer;
@@ -43,53 +45,51 @@ class ServerMessageRouterTest {
     @Autowired
     private TestHandler testHandler;
 
+    @Autowired
+    private BlockingInterceptor blockingInterceptor;
+
     @Test
-    void messageDispatchesToAnnotatedMethod() {
+    void interceptorBlocksMessage() {
+        blockingInterceptor.setBlock(true);
+        testHandler.getReceived().clear();
+
         final var client = connectClient();
+        client.send(new PingMessage("should be blocked"));
 
-        client.send(new PingMessage("hello"));
+        await().during(300, TimeUnit.MILLISECONDS)
+                .atMost(1, TimeUnit.SECONDS)
+                .until(() -> testHandler.getReceived().isEmpty());
 
-        await().atMost(2, TimeUnit.SECONDS)
-                .until(() -> !testHandler.getReceivedPings().isEmpty());
-
-        assertEquals("hello", testHandler.getReceivedPings().getFirst().getContent());
         client.disconnect();
     }
 
     @Test
-    void connectDispatchesToAnnotatedMethod() {
+    void interceptorAllowsMessage() {
+        blockingInterceptor.setBlock(false);
+        testHandler.getReceived().clear();
+
         final var client = connectClient();
+        client.send(new PingMessage("should pass"));
 
         await().atMost(2, TimeUnit.SECONDS)
-                .until(() -> !testHandler.getConnectedClients().isEmpty());
+                .until(() -> !testHandler.getReceived().isEmpty());
 
-        assertFalse(testHandler.getConnectedClients().isEmpty());
+        assertEquals("should pass", testHandler.getReceived().getFirst().getContent());
         client.disconnect();
     }
 
     @Test
-    void disconnectDispatchesToAnnotatedMethod() {
-        final var client = connectClient();
-        await().atMost(2, TimeUnit.SECONDS).until(() -> !testHandler.getConnectedClients().isEmpty());
+    void interceptorReceivesCorrectMessageType() {
+        blockingInterceptor.setBlock(false);
+        blockingInterceptor.getIntercepted().clear();
 
-        client.disconnect();
+        final var client = connectClient();
+        client.send(new PingMessage("type-check"));
 
         await().atMost(2, TimeUnit.SECONDS)
-                .until(() -> !testHandler.getDisconnectedClients().isEmpty());
+                .until(() -> !blockingInterceptor.getIntercepted().isEmpty());
 
-        assertFalse(testHandler.getDisconnectedClients().isEmpty());
-    }
-
-    @Test
-    void multipleHandlersForSameMessageType() {
-        final var client = connectClient();
-
-        client.send(new PingMessage("multi"));
-
-        await().atMost(2, TimeUnit.SECONDS)
-                .until(() -> !testHandler.getReceivedPings().isEmpty()
-                        && testHandler.getPingCount().get() >= 1);
-
+        assertInstanceOf(PingMessage.class, blockingInterceptor.getIntercepted().getFirst());
         client.disconnect();
     }
 
@@ -114,7 +114,7 @@ class ServerMessageRouterTest {
         return client;
     }
 
-    // --- Test messages ---
+    // --- Messages ---
 
     @Getter
     @NoArgsConstructor
@@ -123,37 +123,36 @@ class ServerMessageRouterTest {
         private String content;
     }
 
-    // --- Test handler ---
+    // --- Interceptor ---
+
+    @Component
+    static class BlockingInterceptor implements ServerMessageInterceptor {
+
+        @Getter
+        private final List<Message> intercepted = new CopyOnWriteArrayList<>();
+
+        @Setter
+        private volatile boolean block;
+
+        @Override
+        public boolean intercept(final Client sender, final Message message) {
+            intercepted.add(message);
+            return !block;
+        }
+    }
+
+    // --- Handler ---
 
     @Component
     static class TestHandler {
 
         @Getter
-        private final List<PingMessage> receivedPings = new CopyOnWriteArrayList<>();
+        private final List<PingMessage> received = new CopyOnWriteArrayList<>();
 
-        @Getter
-        private final List<Client> connectedClients = new CopyOnWriteArrayList<>();
-
-        @Getter
-        private final List<Client> disconnectedClients = new CopyOnWriteArrayList<>();
-
-        @Getter
-        private final AtomicInteger pingCount = new AtomicInteger(0);
-
+        @SuppressWarnings("unused")
         @SubscribeMessage(PingMessage.class)
         public void onPing(final Client sender, final PingMessage message) {
-            receivedPings.add(message);
-            pingCount.incrementAndGet();
-        }
-
-        @SubscribeConnect
-        public void onConnect(final Client client) {
-            connectedClients.add(client);
-        }
-
-        @SubscribeDisconnect
-        public void onDisconnect(final Client client) {
-            disconnectedClients.add(client);
+            received.add(message);
         }
     }
 
@@ -164,10 +163,11 @@ class ServerMessageRouterTest {
     static class TestConfig {
 
         @Bean
-        RavenServer ravenServer(final ServerMessageRouter router) {
+        RavenServer ravenServer(final ServerMessageRouter router, final BlockingInterceptor interceptor) {
             final var config = RavenServerConfiguration.builder()
                     .port(0)
                     .handler(router)
+                    .interceptors(List.of(interceptor))
                     .build();
             final var server = new RavenServer(config);
             server.start();

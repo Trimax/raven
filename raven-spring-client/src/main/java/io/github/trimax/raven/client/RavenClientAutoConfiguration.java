@@ -1,5 +1,6 @@
 package io.github.trimax.raven.client;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -7,6 +8,8 @@ import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 
 import io.github.trimax.raven.core.RavenClient;
+import io.github.trimax.raven.core.config.RavenClientConfiguration;
+import io.github.trimax.raven.core.interceptor.ClientMessageInterceptor;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,8 +36,14 @@ public final class RavenClientAutoConfiguration implements SmartInitializingSing
     private RavenClient client;
 
     @Bean
-    public RavenClient ravenClient(final ClientMessageRouter router) {
-        client = new RavenClient(host, port, router);
+    public RavenClient ravenClient(final ClientMessageRouter router,
+                                   final ObjectProvider<ClientMessageInterceptor> interceptors) {
+        client = new RavenClient(RavenClientConfiguration.builder()
+                .host(host)
+                .port(port)
+                .handler(router)
+                .interceptors(interceptors.orderedStream().toList())
+                .build());
         return client;
     }
 

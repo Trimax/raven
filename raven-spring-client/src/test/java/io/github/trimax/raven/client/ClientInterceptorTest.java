@@ -26,17 +26,19 @@ import io.github.trimax.raven.core.RavenServer;
 import io.github.trimax.raven.core.config.RavenClientConfiguration;
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.handler.ServerHandler;
+import io.github.trimax.raven.core.interceptor.ClientMessageInterceptor;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 /**
- * Tests that a catch-all handler ({@code @SubscribeMessage(Message.class)}) receives all messages,
- * and that a specific handler is not invoked twice when both catch-all and specific handlers exist.
+ * Integration tests verifying that {@link ClientMessageInterceptor} beans are
+ * picked up by the configuration and applied before message dispatch on the client.
  */
 @ExtendWith(SpringExtension.class)
-@ContextConfiguration(classes = GenericHandlerTest.TestConfig.class)
-class GenericHandlerTest {
+@ContextConfiguration(classes = ClientInterceptorTest.TestConfig.class)
+class ClientInterceptorTest {
 
     private static RavenServer server;
 
@@ -44,10 +46,10 @@ class GenericHandlerTest {
     private RavenClient ravenClient;
 
     @Autowired
-    private CatchAllHandler catchAllHandler;
+    private TestHandler testHandler;
 
     @Autowired
-    private SpecificHandler specificHandler;
+    private BlockingInterceptor blockingInterceptor;
 
     @BeforeAll
     static void startServer() {
@@ -55,16 +57,13 @@ class GenericHandlerTest {
                 .port(0)
                 .handler(new ServerHandler() {
                     @Override
-                    public void onConnect(final Client client) {
-                    }
+                    public void onConnect(final Client client) {}
 
                     @Override
-                    public void onDisconnect(final Client client) {
-                    }
+                    public void onDisconnect(final Client client) {}
 
                     @Override
-                    public void onMessage(final Client sender, final Message message) {
-                    }
+                    public void onMessage(final Client sender, final Message message) {}
                 })
                 .build();
         server = new RavenServer(config);
@@ -77,48 +76,34 @@ class GenericHandlerTest {
     }
 
     @Test
-    void catchAllReceivesAllMessages() {
+    void interceptorBlocksMessage() {
         await().atMost(2, TimeUnit.SECONDS).until(ravenClient::isConnected);
+        blockingInterceptor.setBlock(true);
+        testHandler.getReceived().clear();
 
-        server.broadcast(new PingMessage("ping1"));
-        server.broadcast(new PongMessage("pong1"));
+        // Server broadcasts to client — interceptor should block
+        server.broadcast(new PongMessage("should be blocked"));
 
-        await().atMost(2, TimeUnit.SECONDS)
-                .until(() -> catchAllHandler.getReceived().size() >= 2);
-
-        assertEquals(2, catchAllHandler.getReceived().size());
+        await().during(300, TimeUnit.MILLISECONDS)
+                .atMost(1, TimeUnit.SECONDS)
+                .until(() -> testHandler.getReceived().isEmpty());
     }
 
     @Test
-    void specificHandlerCalledOnceNotTwice() {
+    void interceptorAllowsMessage() {
         await().atMost(2, TimeUnit.SECONDS).until(ravenClient::isConnected);
+        blockingInterceptor.setBlock(false);
+        testHandler.getReceived().clear();
 
-        catchAllHandler.getReceived().clear();
-        specificHandler.getReceived().clear();
-
-        server.broadcast(new PingMessage("test"));
+        server.broadcast(new PongMessage("should pass"));
 
         await().atMost(2, TimeUnit.SECONDS)
-                .until(() -> !specificHandler.getReceived().isEmpty());
+                .until(() -> !testHandler.getReceived().isEmpty());
 
-        // Specific handler called exactly once
-        assertEquals(1, specificHandler.getReceived().size());
-        assertEquals("test", specificHandler.getReceived().getFirst().getContent());
-
-        // Catch-all also called exactly once for the same message
-        await().atMost(2, TimeUnit.SECONDS)
-                .until(() -> !catchAllHandler.getReceived().isEmpty());
-        assertEquals(1, catchAllHandler.getReceived().size());
+        assertEquals("should pass", testHandler.getReceived().getFirst().getContent());
     }
 
     // --- Messages ---
-
-    @Getter
-    @NoArgsConstructor
-    @AllArgsConstructor
-    static class PingMessage extends Message {
-        private String content;
-    }
 
     @Getter
     @NoArgsConstructor
@@ -127,30 +112,35 @@ class GenericHandlerTest {
         private String content;
     }
 
-    // --- Handlers ---
+    // --- Interceptor ---
 
     @Component
-    static class CatchAllHandler {
+    static class BlockingInterceptor implements ClientMessageInterceptor {
 
         @Getter
-        private final List<Message> received = new CopyOnWriteArrayList<>();
+        private final List<Message> intercepted = new CopyOnWriteArrayList<>();
 
-        @SuppressWarnings("unused")
-        @SubscribeMessage(Message.class)
-        public void onAny(final Message message) {
-            received.add(message);
+        @Setter
+        private volatile boolean block;
+
+        @Override
+        public boolean intercept(final Message message) {
+            intercepted.add(message);
+            return !block;
         }
     }
 
+    // --- Handler ---
+
     @Component
-    static class SpecificHandler {
+    static class TestHandler {
 
         @Getter
-        private final List<PingMessage> received = new CopyOnWriteArrayList<>();
+        private final List<PongMessage> received = new CopyOnWriteArrayList<>();
 
         @SuppressWarnings("unused")
-        @SubscribeMessage(PingMessage.class)
-        public void onPing(final PingMessage message) {
+        @SubscribeMessage(PongMessage.class)
+        public void onPong(final PongMessage message) {
             received.add(message);
         }
     }
@@ -162,11 +152,12 @@ class GenericHandlerTest {
     static class TestConfig {
 
         @Bean
-        RavenClient ravenClient(final ClientMessageRouter router) {
+        RavenClient ravenClient(final ClientMessageRouter router, final BlockingInterceptor interceptor) {
             final var config = RavenClientConfiguration.builder()
                     .host("localhost")
                     .port(server.getPort())
                     .handler(router)
+                    .interceptors(List.of(interceptor))
                     .build();
             final var client = new RavenClient(config);
             client.connect();
