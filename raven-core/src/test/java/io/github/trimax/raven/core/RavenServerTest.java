@@ -112,7 +112,7 @@ class RavenServerTest {
         final var server = new RavenServer(0, new NoOpServerHandler());
         server.start();
 
-        assertDoesNotThrow(() -> server.send(new TestMessage("broadcast to nobody")));
+        assertDoesNotThrow(() -> server.broadcast(new TestMessage("broadcast to nobody")));
 
         server.stop();
     }
@@ -143,6 +143,93 @@ class RavenServerTest {
         server.stop();
 
         await().atMost(2, TimeUnit.SECONDS).until(() -> disconnected.size() >= 2);
+    }
+
+    @Test
+    void sendWithEmptyRecipientsIsNoOp() {
+        final var received = new CopyOnWriteArrayList<Message>();
+
+        final var server = new RavenServer(0, new NoOpServerHandler());
+        server.start();
+
+        final var client = new RavenClient("localhost", server.getPort(), new ClientHandler() {
+            @Override
+            public void onConnect() {}
+
+            @Override
+            public void onDisconnect() {}
+
+            @Override
+            public void onMessage(final Message message) {
+                received.add(message);
+            }
+        });
+        client.connect();
+
+        await().atMost(2, TimeUnit.SECONDS).until(client::isConnected);
+
+        // Sending message with empty array — should NOT reach the client
+        server.send(new TestMessage("should not arrive"), new java.util.UUID[0]);
+
+        // Wait briefly and verify nothing arrived
+        try {
+            Thread.sleep(300);
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        assertTrue(received.isEmpty(), "send() with empty recipients should be a no-op");
+
+        client.disconnect();
+        server.stop();
+    }
+
+    @Test
+    void broadcastReachesAllClients() {
+        final var received1 = new CopyOnWriteArrayList<Message>();
+        final var received2 = new CopyOnWriteArrayList<Message>();
+
+        final var server = new RavenServer(0, new NoOpServerHandler());
+        server.start();
+
+        final var client1 = new RavenClient("localhost", server.getPort(), new ClientHandler() {
+            @Override
+            public void onConnect() {}
+
+            @Override
+            public void onDisconnect() {}
+
+            @Override
+            public void onMessage(final Message message) {
+                received1.add(message);
+            }
+        });
+        final var client2 = new RavenClient("localhost", server.getPort(), new ClientHandler() {
+            @Override
+            public void onConnect() {}
+
+            @Override
+            public void onDisconnect() {}
+
+            @Override
+            public void onMessage(final Message message) {
+                received2.add(message);
+            }
+        });
+
+        client1.connect();
+        client2.connect();
+
+        await().atMost(2, TimeUnit.SECONDS).until(() -> server.getClients().size() == 2);
+
+        server.broadcast(new TestMessage("hello all"));
+
+        await().atMost(2, TimeUnit.SECONDS).until(() -> received1.size() == 1 && received2.size() == 1);
+        assertEquals("hello all", ((TestMessage) received1.getFirst()).getContent());
+        assertEquals("hello all", ((TestMessage) received2.getFirst()).getContent());
+
+        client1.disconnect();
+        client2.disconnect();
+        server.stop();
     }
 
     private static class NoOpServerHandler implements ServerHandler {

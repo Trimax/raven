@@ -8,6 +8,7 @@ import java.net.Socket;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -118,7 +119,7 @@ class ValidationIntegrationTest {
 
         await().atMost(2, TimeUnit.SECONDS).until(() -> !connectedClients.isEmpty());
 
-        assertThrows(MessageValidationRavenException.class, () -> server.send(new InvalidMessage()));
+        assertThrows(MessageValidationRavenException.class, () -> server.broadcast(new InvalidMessage()));
 
         // Client should never receive the message
         assertDoesNotArrive(clientReceivedMessages::isEmpty);
@@ -139,7 +140,7 @@ class ValidationIntegrationTest {
         serverReceivedMessages.clear();
         connectedClients.clear();
 
-        // Use a raw socket to bypass RavenClient's send validation
+        // Use a raw socket to bypass RavenClient's send method validation
         try (final var socket = new Socket(HOST, port)) {
             final var oos = new ObjectOutputStream(socket.getOutputStream());
 
@@ -156,9 +157,9 @@ class ValidationIntegrationTest {
     }
 
     /**
-     * Asserts that a condition remains true for a reasonable period (message never arrives).
+     * Asserts that a condition remains true for a reasonable period (the message never arrives).
      */
-    private void assertDoesNotArrive(final java.util.function.BooleanSupplier stillEmpty) {
+    private void assertDoesNotArrive(final BooleanSupplier stillEmpty) {
         try {
             Thread.sleep(500);
         } catch (final InterruptedException e) {

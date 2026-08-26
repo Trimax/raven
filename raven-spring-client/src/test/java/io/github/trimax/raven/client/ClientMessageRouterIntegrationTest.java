@@ -1,13 +1,14 @@
 package io.github.trimax.raven.client;
 
-import io.github.trimax.raven.core.Message;
-import io.github.trimax.raven.core.RavenClient;
-import io.github.trimax.raven.core.RavenServer;
-import io.github.trimax.raven.core.handler.ServerHandler;
-import io.github.trimax.raven.core.Client;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
+import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -20,13 +21,14 @@ import org.springframework.stereotype.Component;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 
-import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.awaitility.Awaitility.await;
-import static org.junit.jupiter.api.Assertions.*;
+import io.github.trimax.raven.core.Client;
+import io.github.trimax.raven.core.Message;
+import io.github.trimax.raven.core.RavenClient;
+import io.github.trimax.raven.core.RavenServer;
+import io.github.trimax.raven.core.handler.ServerHandler;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 /**
  * Integration tests for {@link ClientMessageRouter} with a real Spring context.
@@ -71,7 +73,7 @@ class ClientMessageRouterIntegrationTest {
         await().atMost(2, TimeUnit.SECONDS).until(ravenClient::isConnected);
 
         // Server sends a message to client
-        server.send(new PongMessage("hello client"));
+        server.broadcast(new PongMessage("hello client"));
 
         await().atMost(2, TimeUnit.SECONDS)
                 .until(() -> !testHandler.getReceivedMessages().isEmpty());
@@ -126,6 +128,7 @@ class ClientMessageRouterIntegrationTest {
         @Getter
         private final AtomicInteger disconnectCount = new AtomicInteger(0);
 
+        @SuppressWarnings("unused")
         @SubscribeMessage(PongMessage.class)
         public void onPong(final PongMessage message) {
             receivedMessages.add(message);
@@ -137,6 +140,7 @@ class ClientMessageRouterIntegrationTest {
         }
 
         @SubscribeDisconnect
+        @SuppressWarnings("unused")
         public void onDisconnect() {
             disconnectCount.incrementAndGet();
         }

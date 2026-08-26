@@ -109,7 +109,7 @@ class RavenTransportTest {
 
         await().atMost(2, TimeUnit.SECONDS).until(() -> !connectedClients.isEmpty());
 
-        server.send(new TestMessage("from server"));
+        server.broadcast(new TestMessage("from server"));
 
         assertTrue(latch.await(2, TimeUnit.SECONDS));
         assertEquals(1, receivedMessages.size());
@@ -156,7 +156,7 @@ class RavenTransportTest {
 
         await().atMost(2, TimeUnit.SECONDS).until(() -> connectedClients.size() == 2);
 
-        server.send(new TestMessage("broadcast"));
+        server.broadcast(new TestMessage("broadcast"));
 
         assertTrue(latch.await(2, TimeUnit.SECONDS));
         assertEquals("broadcast", ((TestMessage) received1.getFirst()).getContent());

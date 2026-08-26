@@ -77,26 +77,42 @@ public final class RavenServer {
     }
 
     /**
-     * Sends a message to the specified recipients.
-     * If no recipients are provided, the message is broadcast to all connected clients.
+     * Broadcasts a message to all connected clients.
      *
-     * @param message    the message to send
-     * @param recipients zero or more client IDs; empty means broadcast to all
+     * @param message the message to broadcast
      */
-    public void send(final Message message, final UUID... recipients) {
+    public void broadcast(final Message message) {
         MessageValidator.validateOrThrow(message);
 
-        if (ArrayUtil.isEmpty(recipients)) {
-            MeasurementUtil.measure(() -> send(message, clients.keySet()),
+        MeasurementUtil.measure(() -> send(message, clients.keySet()),
                 duration -> log.debug("Message {} broadcasted in {}ms", message.getId(), duration.toMillis()));
+    }
+
+    /**
+     * Sends a message to the specified recipients.
+     * If the recipient array is empty, no message is sent (no-op).
+     *
+     * @param message    the message to send
+     * @param recipients one or more client IDs; an empty array means no-op
+     */
+    public void send(final Message message, final UUID... recipients) {
+        if (ArrayUtil.isEmpty(recipients))
             return;
-        }
 
         MeasurementUtil.measure(() -> send(message, Set.of(recipients)),
                 duration -> log.debug("Message {} sent in {}ms", message.getId(), duration.toMillis()));
     }
 
-    private void send(final Message message, final Set<UUID> recipients) {
+    /**
+     * Sends a message to the specified recipients.
+     * If the recipient array is empty, no message is sent (no-op).
+     *
+     * @param message    the message to send
+     * @param recipients set with client IDs; an empty set means no-op
+     */
+    public void send(final Message message, final Set<UUID> recipients) {
+        MessageValidator.validateOrThrow(message);
+
         for (final var recipientId : recipients) {
             final var client = clients.get(recipientId);
             if (client == null) {
