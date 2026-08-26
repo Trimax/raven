@@ -1,12 +1,12 @@
 package io.github.trimax.raven.core;
 
-import org.junit.jupiter.api.Test;
+import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
-import static org.awaitility.Awaitility.await;
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.Test;
 
 import io.github.trimax.raven.core.handler.ClientHandler;
 import io.github.trimax.raven.core.handler.ServerHandler;
@@ -53,6 +53,22 @@ class RavenServerTest {
         final var server = new RavenServer(0, new NoOpServerHandler());
         assertDoesNotThrow(server::stop);
         assertFalse(server.isRunning());
+    }
+
+    @Test
+    void getPortReturnsNegativeOneWhenNotRunning() {
+        final var server = new RavenServer(0, new NoOpServerHandler());
+        assertEquals(-1, server.getPort());
+    }
+
+    @Test
+    void getPortReturnsNegativeOneAfterStop() {
+        final var server = new RavenServer(0, new NoOpServerHandler());
+        server.start();
+        assertTrue(server.getPort() > 0);
+
+        server.stop();
+        assertEquals(-1, server.getPort());
     }
 
     @Test

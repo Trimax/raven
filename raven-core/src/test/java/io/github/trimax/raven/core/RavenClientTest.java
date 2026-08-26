@@ -1,16 +1,16 @@
 package io.github.trimax.raven.core;
 
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.awaitility.Awaitility.await;
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import io.github.trimax.raven.core.handler.ClientHandler;
 import io.github.trimax.raven.core.handler.ServerHandler;
@@ -176,6 +176,30 @@ class RavenClientTest {
         assertTrue(client.isConnected());
 
         client.disconnect();
+    }
+
+    @Test
+    void concurrentSendDuringDisconnectDoesNotThrow() {
+        final var client = new RavenClient("localhost", port, new NoOpClientHandler());
+        client.connect();
+
+        await().atMost(2, TimeUnit.SECONDS).until(client::isConnected);
+
+        // Launch multiple threads sending concurrently while disconnect happens
+        final var threads = new java.util.ArrayList<Thread>();
+        for (int i = 0; i < 10; i++) {
+            final var idx = i;
+            threads.add(Thread.ofVirtual().start(() ->
+                    assertDoesNotThrow(() -> client.send(new TestMessage("concurrent-" + idx)))));
+        }
+
+        // Disconnect while sends may still be in-flight
+        assertDoesNotThrow(client::disconnect);
+
+        // Wait for all sender threads to complete without exceptions
+        for (final var thread : threads) {
+            assertDoesNotThrow(() -> thread.join(2000));
+        }
     }
 
     private static class NoOpServerHandler implements ServerHandler {

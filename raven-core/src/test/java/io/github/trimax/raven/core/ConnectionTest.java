@@ -1,6 +1,6 @@
 package io.github.trimax.raven.core;
 
-import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.IOException;
 import java.io.ObjectOutputStream;
@@ -10,7 +10,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.Test;
 
 /**
  * Unit tests for {@link Connection}.
@@ -35,7 +35,7 @@ class ConnectionTest {
             final var socket = new Socket("localhost", port);
             final var connection = new Connection(socket);
 
-            latch.await(2, TimeUnit.SECONDS);
+            final var ignored = latch.await(2, TimeUnit.SECONDS);
             assertTrue(connection.isConnected());
 
             connection.disconnect();
@@ -109,6 +109,36 @@ class ConnectionTest {
     }
 
     @Test
+    void receiveReturnsNullForNonMessageObject() throws Exception {
+        try (final var serverSocket = new ServerSocket(0)) {
+            final var port = serverSocket.getLocalPort();
+            final var latch = new CountDownLatch(1);
+
+            Thread.ofVirtual().start(() -> {
+                try {
+                    final var accepted = serverSocket.accept();
+                    final var oos = new ObjectOutputStream(accepted.getOutputStream());
+                    // Send a non-Message object (plain String)
+                    oos.writeObject("I am not a Message");
+                    oos.flush();
+                    latch.countDown();
+                } catch (final IOException ignored) {
+                }
+            });
+
+            final var socket = new Socket("localhost", port);
+            final var connection = new Connection(socket);
+
+            latch.await(2, TimeUnit.SECONDS);
+
+            final var received = connection.receive();
+            assertNull(received, "Non-Message objects should result in null");
+
+            connection.disconnect();
+        }
+    }
+
+    @Test
     void sendAndReceiveMessage() throws Exception {
         try (final var serverSocket = new ServerSocket(0)) {
             final var port = serverSocket.getLocalPort();
@@ -127,7 +157,7 @@ class ConnectionTest {
             final var socket = new Socket("localhost", port);
             final var clientConnection = new Connection(socket);
 
-            latch.await(2, TimeUnit.SECONDS);
+            final var ignored = latch.await(2, TimeUnit.SECONDS);
 
             clientConnection.send(new TestMessage("ping"));
             final var received = serverConnection.get().receive();

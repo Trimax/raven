@@ -1,16 +1,16 @@
 package io.github.trimax.raven.core;
 
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-import static org.awaitility.Awaitility.await;
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import io.github.trimax.raven.core.handler.ClientHandler;
 import io.github.trimax.raven.core.handler.ServerHandler;
@@ -271,6 +271,76 @@ class RavenTransportTest {
         assertEquals(5, server.getClients().size());
 
         clients.forEach(RavenClient::disconnect);
+    }
+
+    @Test
+    void serverSendsToMultipleSpecificRecipients() {
+        final var received1 = new CopyOnWriteArrayList<Message>();
+        final var received2 = new CopyOnWriteArrayList<Message>();
+        final var received3 = new CopyOnWriteArrayList<Message>();
+
+        final var client1 = new RavenClient(HOST, port, new ClientHandler() {
+            @Override
+            public void onConnect() {}
+
+            @Override
+            public void onDisconnect() {}
+
+            @Override
+            public void onMessage(final Message message) {
+                received1.add(message);
+            }
+        });
+        final var client2 = new RavenClient(HOST, port, new ClientHandler() {
+            @Override
+            public void onConnect() {}
+
+            @Override
+            public void onDisconnect() {}
+
+            @Override
+            public void onMessage(final Message message) {
+                received2.add(message);
+            }
+        });
+        final var client3 = new RavenClient(HOST, port, new ClientHandler() {
+            @Override
+            public void onConnect() {}
+
+            @Override
+            public void onDisconnect() {}
+
+            @Override
+            public void onMessage(final Message message) {
+                received3.add(message);
+            }
+        });
+
+        client1.connect();
+        client2.connect();
+        client3.connect();
+
+        await().atMost(2, TimeUnit.SECONDS).until(() -> connectedClients.size() == 3);
+
+        // Send to client1 and client2 only, not client3
+        final var target1 = connectedClients.get(0).getId();
+        final var target2 = connectedClients.get(1).getId();
+        server.send(new TestMessage("multi-target"), target1, target2);
+
+        await().atMost(2, TimeUnit.SECONDS)
+                .until(() -> received1.size() + received2.size() == 2);
+
+        // Third client should NOT receive the message
+        try {
+            Thread.sleep(300);
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        assertTrue(received3.isEmpty(), "Client3 should not receive a targeted message");
+
+        client1.disconnect();
+        client2.disconnect();
+        client3.disconnect();
     }
 
     @Test
