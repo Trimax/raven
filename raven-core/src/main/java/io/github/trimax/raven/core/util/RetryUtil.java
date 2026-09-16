@@ -3,15 +3,14 @@ package io.github.trimax.raven.core.util;
 import io.github.trimax.raven.core.util.interfaces.ThrowingRunnable;
 import io.github.trimax.raven.core.util.interfaces.ThrowingSupplier;
 import io.github.trimax.raven.core.util.retry.RetryStrategy;
-import lombok.AccessLevel;
-import lombok.NoArgsConstructor;
+import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
 
 /**
  * Utility for retrying operations with a configurable {@link RetryStrategy}.
  */
 @Slf4j
-@NoArgsConstructor(access = AccessLevel.PRIVATE)
+@UtilityClass
 public final class RetryUtil {
 
     /**

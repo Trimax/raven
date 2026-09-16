@@ -7,8 +7,7 @@ import io.github.trimax.raven.core.Message;
 import io.github.trimax.raven.core.interceptor.ClientMessageInterceptor;
 import io.github.trimax.raven.core.interceptor.ServerMessageInterceptor;
 import io.github.trimax.raven.core.util.interfaces.ThrowingSupplier;
-import lombok.AccessLevel;
-import lombok.NoArgsConstructor;
+import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -16,7 +15,7 @@ import lombok.extern.slf4j.Slf4j;
  * Exceptions thrown by interceptors are logged and treated as rejection.
  */
 @Slf4j
-@NoArgsConstructor(access = AccessLevel.PRIVATE)
+@UtilityClass
 public final class InterceptorUtil {
 
     /**
