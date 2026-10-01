@@ -105,6 +105,53 @@ class AbstractMessageRouterTest {
         dispatch(DeleteRequest.builder().build());
 
         assertEquals(List.of("base:DeleteRequest"), CALLS);
+        assertEquals(List.of("BaseRequest -> 1 handler(s)"), router.messageHandlerSummary());
+    }
+
+    @Test
+    void sameLifecycleBeanRegisteredTwiceIsInvokedOnce() {
+        final var handler = new ConnectHandler();
+        register(handler);
+        register(handler);
+
+        router.onConnect();
+
+        assertEquals(List.of("connect"), CALLS);
+    }
+
+    @Test
+    void distinctBeansOfSameClassAreBothInvoked() {
+        register(new BaseHandler());
+        register(new BaseHandler());
+
+        dispatch(DeleteRequest.builder().build());
+
+        assertEquals(List.of("base:DeleteRequest", "base:DeleteRequest"), CALLS);
+    }
+
+    @Test
+    void summaryUsesSimpleNamesWhenUnique() {
+        register(new CatchAllHandler());
+        register(new BaseHandler());
+        register(new SecondBaseHandler());
+        register(new CreateHandler());
+
+        assertEquals(List.of(
+                "BaseRequest -> 2 handler(s)",
+                "CreateRequest -> 1 handler(s)",
+                "Message -> 1 handler(s)"), router.messageHandlerSummary());
+    }
+
+    @Test
+    void summaryUsesQualifiedNamesForCollidingSimpleNames() {
+        register(new FirstPingHandler());
+        register(new SecondPingHandler());
+        register(new CreateHandler());
+
+        assertEquals(List.of(
+                "CreateRequest -> 1 handler(s)",
+                FirstScope.Ping.class.getName() + " -> 1 handler(s)",
+                SecondScope.Ping.class.getName() + " -> 1 handler(s)"), router.messageHandlerSummary());
     }
 
     @Test
@@ -218,6 +265,10 @@ class AbstractMessageRouterTest {
         void onMessage(final Message message) {
             invokeMessageHandlers(message, handler -> handler.invoke(message));
         }
+
+        void onConnect() {
+            invokeConnectHandlers(HandlerMethod::invoke);
+        }
     }
 
     // --- Messages ---
@@ -240,6 +291,16 @@ class AbstractMessageRouterTest {
 
     @SuperBuilder(toBuilder = true)
     static final class PlainMessage extends Message {
+    }
+
+    static final class FirstScope {
+        static final class Ping extends Message {
+        }
+    }
+
+    static final class SecondScope {
+        static final class Ping extends Message {
+        }
     }
 
     // --- Handlers ---
@@ -280,6 +341,27 @@ class AbstractMessageRouterTest {
         @OnMessage(BulkCreateRequest.class)
         void onBulkCreate(final BulkCreateRequest message) {
             record("bulk", message);
+        }
+    }
+
+    static final class ConnectHandler {
+        @OnConnect
+        void onConnect() {
+            CALLS.add("connect");
+        }
+    }
+
+    static final class FirstPingHandler {
+        @OnMessage(FirstScope.Ping.class)
+        void onPing(final FirstScope.Ping message) {
+            record("ping1", message);
+        }
+    }
+
+    static final class SecondPingHandler {
+        @OnMessage(SecondScope.Ping.class)
+        void onPing(final SecondScope.Ping message) {
+            record("ping2", message);
         }
     }
 

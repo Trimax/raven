@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.BeansException;
@@ -34,9 +35,10 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public abstract class AbstractMessageRouter implements BeanPostProcessor, SmartInitializingSingleton {
 
+    // Copy-on-write lists: registration is rare and may happen late (lazy beans), dispatch is frequent and concurrent
     private final Map<Class<? extends Message>, List<HandlerMethod>> messageHandlers = new ConcurrentHashMap<>();
-    private final List<HandlerMethod> connectHandlers = new ArrayList<>();
-    private final List<HandlerMethod> disconnectHandlers = new ArrayList<>();
+    private final List<HandlerMethod> connectHandlers = new CopyOnWriteArrayList<>();
+    private final List<HandlerMethod> disconnectHandlers = new CopyOnWriteArrayList<>();
 
     /**
      * Cache of resolved handlers per concrete message class. Replaced (not cleared) on registration,
@@ -95,13 +97,13 @@ public abstract class AbstractMessageRouter implements BeanPostProcessor, SmartI
             if (AnnotationUtils.findAnnotation(method, connectAnnotation()) != null) {
                 validateLifecycleHandler(method, targetClass, "SubscribeConnect");
                 method.setAccessible(true);
-                connectHandlers.add(new HandlerMethod(bean, method));
+                addIfAbsent(connectHandlers, new HandlerMethod(bean, method));
             }
 
             if (AnnotationUtils.findAnnotation(method, disconnectAnnotation()) != null) {
                 validateLifecycleHandler(method, targetClass, "SubscribeDisconnect");
                 method.setAccessible(true);
-                disconnectHandlers.add(new HandlerMethod(bean, method));
+                addIfAbsent(disconnectHandlers, new HandlerMethod(bean, method));
             }
         }
         return bean;
@@ -112,11 +114,24 @@ public abstract class AbstractMessageRouter implements BeanPostProcessor, SmartI
         log.info("MessageRouter: {} message type(s), {} connect handler(s), {} disconnect handler(s)",
                 messageHandlers.size(), connectHandlers.size(), disconnectHandlers.size());
 
-        messageHandlers.entrySet().stream()
-                .sorted(Map.Entry.comparingByKey(Comparator.<Class<?>, String>comparing(Class::getSimpleName)
-                        .thenComparing(Class::getName)))
-                .forEach(entry -> log.info("  {} -> {} handler(s)",
-                        entry.getKey().getSimpleName(), entry.getValue().size()));
+        messageHandlerSummary().forEach(line -> log.info("  {}", line));
+    }
+
+    /**
+     * Returns one {@code "Type -> N handler(s)"} line per registered message type, sorted by name.
+     * The simple name is used unless several registered types share it; those are printed fully qualified.
+     */
+    List<String> messageHandlerSummary() {
+        final var types = List.copyOf(messageHandlers.keySet());
+        final var simpleNameCounts = types.stream()
+                .collect(Collectors.groupingBy(Class::getSimpleName, Collectors.counting()));
+
+        return types.stream()
+                .sorted(Comparator.<Class<?>, String>comparing(Class::getSimpleName).thenComparing(Class::getName))
+                .map(type -> "%s -> %d handler(s)".formatted(
+                        simpleNameCounts.get(type.getSimpleName()) > 1 ? type.getName() : type.getSimpleName(),
+                        messageHandlers.get(type).size()))
+                .toList();
     }
 
     /**
@@ -158,27 +173,32 @@ public abstract class AbstractMessageRouter implements BeanPostProcessor, SmartI
     }
 
     private void registerMessageHandler(final Class<? extends Message> messageType, final HandlerMethod handler) {
-        messageHandlers.computeIfAbsent(messageType, _ -> new CopyOnWriteArrayList<>()).add(handler);
-        resolvedHandlers = new ConcurrentHashMap<>();
+        final var handlers = messageHandlers.computeIfAbsent(messageType, _ -> new CopyOnWriteArrayList<>());
+        if (addIfAbsent(handlers, handler))
+            resolvedHandlers = new ConcurrentHashMap<>();
+    }
+
+    /**
+     * Adds the handler unless the same bean instance with the same method is already registered.
+     * Guards against the same bean instance being post-processed twice. Beans are compared by identity
+     * because user beans may override {@code equals}.
+     */
+    private synchronized boolean addIfAbsent(final List<HandlerMethod> handlers, final HandlerMethod candidate) {
+        for (final var handler : handlers)
+            if (handler.bean() == candidate.bean() && handler.method().equals(candidate.method()))
+                return false;
+
+        return handlers.add(candidate);
     }
 
     private List<HandlerMethod> resolveHandlers(final Class<?> messageClass) {
+        // A handler is registered for exactly one type and only once, so no deduplication is needed here
         final List<HandlerMethod> result = new ArrayList<>();
 
         for (Class<?> current = messageClass; current != null && Message.class.isAssignableFrom(current); current = current.getSuperclass())
-            for (final var handler : messageHandlers.getOrDefault(current, List.of()))
-                if (!containsHandler(result, handler))
-                    result.add(handler);
+            result.addAll(messageHandlers.getOrDefault(current, List.of()));
 
         return List.copyOf(result);
-    }
-
-    private static boolean containsHandler(final List<HandlerMethod> handlers, final HandlerMethod candidate) {
-        for (final var handler : handlers)
-            if (handler.bean() == candidate.bean() && handler.method().equals(candidate.method()))
-                return true;
-
-        return false;
     }
 
     private void invokeHandlers(final List<HandlerMethod> handlers, final Consumer<HandlerMethod> invoker) {
