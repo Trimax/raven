@@ -114,24 +114,24 @@ public abstract class AbstractMessageRouter implements BeanPostProcessor, SmartI
         log.info("MessageRouter: {} message type(s), {} connect handler(s), {} disconnect handler(s)",
                 messageHandlers.size(), connectHandlers.size(), disconnectHandlers.size());
 
-        messageHandlerSummary().forEach(line -> log.info("  {}", line));
+        printHandlersSummary();
     }
 
     /**
      * Returns one {@code "Type -> N handler(s)"} line per registered message type, sorted by name.
      * The simple name is used unless several registered types share it; those are printed fully qualified.
      */
-    List<String> messageHandlerSummary() {
+    private void printHandlersSummary() {
         final var types = List.copyOf(messageHandlers.keySet());
         final var simpleNameCounts = types.stream()
                 .collect(Collectors.groupingBy(Class::getSimpleName, Collectors.counting()));
 
-        return types.stream()
+        types.stream()
                 .sorted(Comparator.<Class<?>, String>comparing(Class::getSimpleName).thenComparing(Class::getName))
                 .map(type -> "%s -> %d handler(s)".formatted(
                         simpleNameCounts.get(type.getSimpleName()) > 1 ? type.getName() : type.getSimpleName(),
                         messageHandlers.get(type).size()))
-                .toList();
+                .forEach(line -> log.info("  {}", line));
     }
 
     /**
@@ -168,7 +168,7 @@ public abstract class AbstractMessageRouter implements BeanPostProcessor, SmartI
     /**
      * Returns the cached, ordered list of handlers applicable to the given concrete message class.
      */
-    List<HandlerMethod> handlersFor(final Class<?> messageClass) {
+    private List<HandlerMethod> handlersFor(final Class<?> messageClass) {
         return resolvedHandlers.computeIfAbsent(messageClass, this::resolveHandlers);
     }
 

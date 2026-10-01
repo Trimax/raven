@@ -9,10 +9,17 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
+
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 import io.github.trimax.raven.core.Message;
 import lombok.experimental.SuperBuilder;
@@ -24,12 +31,23 @@ class AbstractMessageRouterTest {
 
     private static final List<String> CALLS = new CopyOnWriteArrayList<>();
 
+    private final Logger routerLogger = (Logger) LoggerFactory.getLogger(AbstractMessageRouter.class);
+    private final ListAppender<ILoggingEvent> logAppender = new ListAppender<>();
+
     private TestRouter router;
 
     @BeforeEach
     void setUp() {
         CALLS.clear();
         router = new TestRouter();
+        logAppender.start();
+        routerLogger.addAppender(logAppender);
+    }
+
+    @AfterEach
+    void tearDown() {
+        routerLogger.detachAppender(logAppender);
+        logAppender.stop();
     }
 
     @Test
@@ -105,7 +123,7 @@ class AbstractMessageRouterTest {
         dispatch(DeleteRequest.builder().build());
 
         assertEquals(List.of("base:DeleteRequest"), CALLS);
-        assertEquals(List.of("BaseRequest -> 1 handler(s)"), router.messageHandlerSummary());
+        assertEquals(List.of("BaseRequest -> 1 handler(s)"), startupSummary());
     }
 
     @Test
@@ -139,7 +157,7 @@ class AbstractMessageRouterTest {
         assertEquals(List.of(
                 "BaseRequest -> 2 handler(s)",
                 "CreateRequest -> 1 handler(s)",
-                "Message -> 1 handler(s)"), router.messageHandlerSummary());
+                "Message -> 1 handler(s)"), startupSummary());
     }
 
     @Test
@@ -151,7 +169,7 @@ class AbstractMessageRouterTest {
         assertEquals(List.of(
                 "CreateRequest -> 1 handler(s)",
                 FirstScope.Ping.class.getName() + " -> 1 handler(s)",
-                SecondScope.Ping.class.getName() + " -> 1 handler(s)"), router.messageHandlerSummary());
+                SecondScope.Ping.class.getName() + " -> 1 handler(s)"), startupSummary());
     }
 
     @Test
@@ -164,40 +182,30 @@ class AbstractMessageRouterTest {
     }
 
     @Test
-    void resolvedHandlersAreCachedPerMessageClass() {
+    void resolvedHandlersAreCachedPerMessageClass() throws ReflectiveOperationException {
         register(new BaseHandler());
         register(new CreateHandler());
 
-        final var first = router.handlersFor(CreateRequest.class);
         dispatch(CreateRequest.builder().build());
+        final var first = resolvedHandlersCache().get(CreateRequest.class);
         dispatch(CreateRequest.builder().build());
 
-        assertSame(first, router.handlersFor(CreateRequest.class));
-        assertEquals(2, first.size());
+        // The second dispatch reuses the list resolved by the first one instead of walking the hierarchy again
+        assertNotNull(first);
+        assertSame(first, resolvedHandlersCache().get(CreateRequest.class));
+        assertEquals(List.of("create:CreateRequest", "base:CreateRequest",
+                "create:CreateRequest", "base:CreateRequest"), CALLS);
     }
 
     @Test
     void lateRegistrationInvalidatesCache() {
         register(new BaseHandler());
-        final var before = router.handlersFor(CreateRequest.class);
         dispatch(CreateRequest.builder().build());
 
         register(new CreateHandler());
-        final var after = router.handlersFor(CreateRequest.class);
         dispatch(CreateRequest.builder().build());
 
-        assertNotSame(before, after);
-        assertEquals(1, before.size());
-        assertEquals(2, after.size());
         assertEquals(List.of("base:CreateRequest", "create:CreateRequest", "base:CreateRequest"), CALLS);
-    }
-
-    @Test
-    void startupLoggingWithAbstractTypeDoesNotFail() {
-        register(new BaseHandler());
-        register(new CatchAllHandler());
-
-        assertDoesNotThrow(router::afterSingletonsInstantiated);
     }
 
     private void register(final Object bean) {
@@ -206,6 +214,30 @@ class AbstractMessageRouterTest {
 
     private void dispatch(final Message message) {
         router.onMessage(message);
+    }
+
+    /**
+     * Runs the startup hook and returns the logged {@code "Type -> N handler(s)"} lines.
+     */
+    private List<String> startupSummary() {
+        router.afterSingletonsInstantiated();
+
+        return logAppender.list.stream()
+                .map(ILoggingEvent::getFormattedMessage)
+                .filter(line -> line.contains(" -> "))
+                .map(String::strip)
+                .toList();
+    }
+
+    /**
+     * Reads the router's private cache. Caching has no observable effect through the router API,
+     * so the only way to verify it without widening visibility is to inspect the field.
+     */
+    @SuppressWarnings("unchecked")
+    private Map<Class<?>, List<?>> resolvedHandlersCache() throws ReflectiveOperationException {
+        final var field = AbstractMessageRouter.class.getDeclaredField("resolvedHandlers");
+        field.setAccessible(true);
+        return (Map<Class<?>, List<?>>) field.get(router);
     }
 
     // --- Annotations ---
