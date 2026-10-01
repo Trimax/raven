@@ -3,10 +3,13 @@ package io.github.trimax.raven.spring;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.BeansException;
@@ -22,13 +25,25 @@ import lombok.extern.slf4j.Slf4j;
  * Base class for message routers that scan Spring beans for annotated handler methods.
  *
  * <p>Subclasses specify which annotations to scan for and how to validate method signatures.
+ *
+ * <p>Message dispatch follows the superclass chain of the message: handlers registered for the
+ * concrete message class are invoked first, then handlers registered for each superclass up to
+ * and including {@link Message}. Interfaces are not considered. The resolved handler list for each
+ * concrete message class is computed once and cached; the cache is invalidated whenever a new
+ * message handler is registered.
  */
 @Slf4j
 public abstract class AbstractMessageRouter implements BeanPostProcessor, SmartInitializingSingleton {
 
-    private final Map<Class<? extends Message>, List<HandlerMethod>> messageHandlers = new ConcurrentHashMap<>();
-    private final List<HandlerMethod> connectHandlers = new ArrayList<>();
-    private final List<HandlerMethod> disconnectHandlers = new ArrayList<>();
+    private final Map<Class<? extends Message>, HandlerMethodContainer> messageHandlers = new ConcurrentHashMap<>();
+    private final HandlerMethodContainer connectHandlers = new HandlerMethodContainer();
+    private final HandlerMethodContainer disconnectHandlers = new HandlerMethodContainer();
+
+    /**
+     * Cache of resolved handlers per concrete message class. Replaced (not cleared) on registration,
+     * so a resolution computed against the old registrations can only land in the discarded map.
+     */
+    private volatile Map<Class<?>, List<HandlerMethod>> resolvedHandlers = new ConcurrentHashMap<>();
 
     /**
      * Returns the annotation class used for message handlers.
@@ -66,25 +81,28 @@ public abstract class AbstractMessageRouter implements BeanPostProcessor, SmartI
         final var targetClass = AopUtils.getTargetClass(bean);
 
         for (final var method : targetClass.getDeclaredMethods()) {
+            // Bridge methods resolve to the annotation of the bridged method and would register it twice
+            if (method.isBridge())
+                continue;
+
             final var msgAnnotation = AnnotationUtils.findAnnotation(method, messageAnnotation());
             if (msgAnnotation != null) {
                 final var messageType = getMessageType(msgAnnotation);
                 validateMessageHandler(method, targetClass, messageType);
                 method.setAccessible(true);
-                messageHandlers.computeIfAbsent(messageType, _ -> new ArrayList<>())
-                        .add(new HandlerMethod(bean, method));
+                registerMessageHandler(messageType, new HandlerMethod(bean, method));
             }
 
             if (AnnotationUtils.findAnnotation(method, connectAnnotation()) != null) {
                 validateLifecycleHandler(method, targetClass, "SubscribeConnect");
                 method.setAccessible(true);
-                connectHandlers.add(new HandlerMethod(bean, method));
+                connectHandlers.addIfAbsent(new HandlerMethod(bean, method));
             }
 
             if (AnnotationUtils.findAnnotation(method, disconnectAnnotation()) != null) {
                 validateLifecycleHandler(method, targetClass, "SubscribeDisconnect");
                 method.setAccessible(true);
-                disconnectHandlers.add(new HandlerMethod(bean, method));
+                disconnectHandlers.addIfAbsent(new HandlerMethod(bean, method));
             }
         }
         return bean;
@@ -95,45 +113,78 @@ public abstract class AbstractMessageRouter implements BeanPostProcessor, SmartI
         log.info("MessageRouter: {} message type(s), {} connect handler(s), {} disconnect handler(s)",
                 messageHandlers.size(), connectHandlers.size(), disconnectHandlers.size());
 
-        for (final var entry : messageHandlers.entrySet()) {
-            log.info("  {} -> {} handler(s)", entry.getKey().getSimpleName(), entry.getValue().size());
-        }
+        printHandlersSummary();
     }
 
     /**
-     * Invokes all registered message handlers for the given message type.
-     * Also invokes handlers registered for the base {@link Message} type (catch-all),
-     * unless the message itself is exactly {@link Message}.
+     * Logs one {@code "Type -> N handler(s)"} line per registered message type, sorted by name.
+     * The simple name is used unless several registered types share it; those are printed fully qualified.
+     */
+    private void printHandlersSummary() {
+        final var types = List.copyOf(messageHandlers.keySet());
+        final var simpleNameCounts = types.stream()
+                .collect(Collectors.groupingBy(Class::getSimpleName, Collectors.counting()));
+
+        types.stream()
+                .sorted(Comparator.<Class<?>, String>comparing(Class::getSimpleName).thenComparing(Class::getName))
+                .map(type -> "%s -> %d handler(s)".formatted(
+                        simpleNameCounts.get(type.getSimpleName()) > 1 ? type.getName() : type.getSimpleName(),
+                        messageHandlers.get(type).size()))
+                .forEach(line -> log.info("  {}", line));
+    }
+
+    /**
+     * Invokes all registered message handlers for the given message.
+     *
+     * <p>Handlers are invoked from the most specific type to the most general one: first those
+     * registered for the message's own class, then for each superclass, ending with {@link Message}
+     * (catch-all). Each handler method is invoked at most once per message.
      */
     protected void invokeMessageHandlers(final Message message, final Consumer<HandlerMethod> invoker) {
-        final var specificHandlers = messageHandlers.getOrDefault(message.getClass(), List.of());
-        final var genericHandlers = messageHandlers.getOrDefault(Message.class, List.of());
-
-        if (specificHandlers.isEmpty() && genericHandlers.isEmpty()) {
+        final var handlers = handlersFor(message.getClass());
+        if (handlers.isEmpty()) {
             log.debug("No handler for message type: {}", message.getClass().getSimpleName());
             return;
         }
 
-        invokeHandlers(specificHandlers, invoker);
-        invokeHandlers(genericHandlers, invoker);
+        handlers.forEach(invoker);
     }
 
     /**
      * Invokes all registered connection handlers.
      */
     protected void invokeConnectHandlers(final Consumer<HandlerMethod> invoker) {
-        invokeHandlers(connectHandlers, invoker);
+        connectHandlers.invoke(invoker);
     }
 
     /**
      * Invokes all registered disconnect handlers.
      */
     protected void invokeDisconnectHandlers(final Consumer<HandlerMethod> invoker) {
-        invokeHandlers(disconnectHandlers, invoker);
+        disconnectHandlers.invoke(invoker);
     }
 
-    private void invokeHandlers(final List<HandlerMethod> handlers, final Consumer<HandlerMethod> invoker) {
-        handlers.forEach(invoker);
+    /**
+     * Returns the cached, ordered list of handlers applicable to the given concrete message class.
+     */
+    private List<HandlerMethod> handlersFor(final Class<?> messageClass) {
+        return resolvedHandlers.computeIfAbsent(messageClass, this::resolveHandlers);
+    }
+
+    private void registerMessageHandler(final Class<? extends Message> messageType, final HandlerMethod handler) {
+        final var handlers = messageHandlers.computeIfAbsent(messageType, _ -> new HandlerMethodContainer());
+        if (handlers.addIfAbsent(handler))
+            resolvedHandlers = new ConcurrentHashMap<>();
+    }
+
+    private List<HandlerMethod> resolveHandlers(final Class<?> messageClass) {
+        // A handler is registered for exactly one type and only once, so no deduplication is needed here
+        final List<HandlerMethod> result = new ArrayList<>();
+
+        for (Class<?> current = messageClass; current != null && Message.class.isAssignableFrom(current); current = current.getSuperclass())
+            Optional.ofNullable(messageHandlers.get(current)).ifPresent(level -> result.addAll(level.handlers()));
+
+        return List.copyOf(result);
     }
 
     /**
