@@ -1,11 +1,12 @@
 package io.github.trimax.raven.server;
 
-import io.github.trimax.raven.core.Client;
-import io.github.trimax.raven.core.Message;
+import static org.junit.jupiter.api.Assertions.*;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.*;
+import io.github.trimax.raven.core.Client;
+import io.github.trimax.raven.core.Message;
 
 /**
  * Unit tests for {@link ServerMessageRouter} handler signature validation.
@@ -59,6 +60,26 @@ class ServerMessageRouterValidationTest {
     }
 
     @Test
+    void messageHandlerOnAbstractType() {
+        assertDoesNotThrow(() ->
+                router.postProcessAfterInitialization(new AbstractTypeHandler(), "valid"));
+    }
+
+    @Test
+    void messageHandlerWithSupertypeParameter() {
+        assertDoesNotThrow(() ->
+                router.postProcessAfterInitialization(new SupertypeParamHandler(), "valid"));
+    }
+
+    @Test
+    void messageHandlerWithSubtypeParameterRejected() {
+        final var ex = assertThrows(IllegalStateException.class, () ->
+                router.postProcessAfterInitialization(new SubtypeParamHandler(), "bad"));
+        assertTrue(ex.getMessage().contains("does not match parameter type"));
+        assertTrue(ex.getMessage().contains("parameter must be BaseMsg or its supertype"));
+    }
+
+    @Test
     void connectHandlerWrongParamCount() {
         final var ex = assertThrows(IllegalStateException.class, () ->
                 router.postProcessAfterInitialization(new ConnectHandlerNoParams(), "bad"));
@@ -83,12 +104,24 @@ class ServerMessageRouterValidationTest {
 
     static class TestMsg extends Message {}
     static class OtherMsg extends Message {}
+    abstract static class BaseMsg extends Message {}
+    static class DerivedMsg extends BaseMsg {}
 
     // --- Valid handlers ---
 
     static class ValidMessageHandler {
         @SubscribeMessage(TestMsg.class)
         public void handle(final Client sender, final TestMsg msg) {}
+    }
+
+    static class AbstractTypeHandler {
+        @SubscribeMessage(BaseMsg.class)
+        public void handle(final Client sender, final BaseMsg msg) {}
+    }
+
+    static class SupertypeParamHandler {
+        @SubscribeMessage(BaseMsg.class)
+        public void handle(final Client sender, final Message msg) {}
     }
 
     static class ValidConnectHandler {
@@ -116,6 +149,11 @@ class ServerMessageRouterValidationTest {
     static class MessageHandlerTypeMismatch {
         @SubscribeMessage(TestMsg.class)
         public void handle(final Client sender, final OtherMsg msg) {}
+    }
+
+    static class SubtypeParamHandler {
+        @SubscribeMessage(BaseMsg.class)
+        public void handle(final Client sender, final DerivedMsg msg) {}
     }
 
     static class ConnectHandlerNoParams {

@@ -1,13 +1,14 @@
 package io.github.trimax.raven.client;
 
+import java.lang.annotation.Annotation;
+import java.lang.reflect.Method;
+
+import org.springframework.stereotype.Component;
+
 import io.github.trimax.raven.core.Message;
 import io.github.trimax.raven.core.handler.ClientHandler;
 import io.github.trimax.raven.spring.AbstractMessageRouter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
-
-import java.lang.annotation.Annotation;
-import java.lang.reflect.Method;
 
 /**
  * Client-side message router. Implements {@link ClientHandler} and dispatches
@@ -70,11 +71,14 @@ public final class ClientMessageRouter extends AbstractMessageRouter implements 
         }
 
         final var param = method.getParameterTypes()[0];
-        if (!messageType.isAssignableFrom(param) && !param.isAssignableFrom(messageType)) {
+        // The handler receives every subclass of messageType, so the parameter must accept all of them
+        if (!param.isAssignableFrom(messageType)) {
             throw new IllegalStateException(
-                    "Invalid @SubscribeMessage method %s.%s: @SubscribeMessage(%s) does not match parameter type %s"
+                    ("Invalid @SubscribeMessage method %s.%s: @SubscribeMessage(%s) does not match parameter type %s"
+                            + " (parameter must be %s or its supertype)")
                             .formatted(beanClass.getSimpleName(), method.getName(),
-                                    messageType.getSimpleName(), param.getSimpleName()));
+                                    messageType.getSimpleName(), param.getSimpleName(),
+                                    messageType.getSimpleName()));
         }
     }
 

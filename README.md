@@ -11,6 +11,7 @@ Dedicated to my friend — the best 3D artist I know: https://www.deviantart.com
 - Virtual threads for scalable I/O
 - Java Serialization over ObjectStream
 - Annotation-based message dispatch for Spring applications
+- Hierarchy-aware routing: a handler for a (possibly abstract) base class receives all its subclasses
 - Separate server and client routers with signature validation at startup
 - Zero-configuration Spring auto-setup via properties
 
@@ -43,7 +44,7 @@ Add dependency:
 <dependency>
     <groupId>io.github.trimax</groupId>
     <artifactId>raven-spring-server</artifactId>
-    <version>1.0.0</version>
+    <version>1.4.0</version>
 </dependency>
 ```
 
@@ -85,7 +86,7 @@ Add dependency:
 <dependency>
     <groupId>io.github.trimax</groupId>
     <artifactId>raven-spring-client</artifactId>
-    <version>1.0.0</version>
+    <version>1.4.0</version>
 </dependency>
 ```
 
@@ -190,6 +191,66 @@ void method()
 @SubscribeDisconnect
 void method()
 ```
+
+The message parameter must be the annotated type or one of its supertypes (e.g. `@SubscribeMessage(MyMessage.class) void method(Message message)` is valid). A parameter of a *subtype* of the annotated type is rejected at startup, because such a handler would also receive sibling subclasses.
+
+## Message Hierarchy Routing
+
+`@SubscribeMessage` accepts any subclass of `Message`, including abstract ones. A handler receives messages of the annotated type **and of all its subclasses**. This lets one handler cover a whole family of messages:
+
+```java
+@Getter
+@SuperBuilder(toBuilder = true)
+public abstract class GameRequest extends Message {
+    @Serial
+    private static final long serialVersionUID = 1L;
+
+    @NotNull
+    private final UUID gameId;
+}
+
+@Getter
+@SuperBuilder(toBuilder = true)
+public final class OrderPlaceRequest extends GameRequest {
+    @NotNull
+    private final UUID territoryId;
+}
+
+@Component
+public final class GameRequestHandler {
+    @SubscribeMessage(GameRequest.class)
+    public void onGameRequest(Client sender, GameRequest request) {
+        // receives OrderPlaceRequest and every other GameRequest subclass
+    }
+}
+```
+
+### Invocation order
+
+For an incoming message, Raven walks the superclass chain of its concrete class and invokes handlers level by level:
+
+1. handlers registered for the concrete class (e.g. `OrderPlaceRequest`);
+2. handlers registered for each superclass, from the nearest one upwards (e.g. `GameRequest`);
+3. handlers registered for `Message` (catch-all), always last.
+
+Within one level, handlers run in registration order. Each handler method is invoked at most once per message. Handlers registered for a subclass never receive messages of a sibling subclass. Only the superclass chain is considered; interfaces are not.
+
+The resolved handler list is computed once per concrete message class and cached. The cache is invalidated when a handler is registered later (e.g. by a lazily initialized bean).
+
+At startup the router logs every registered type, including abstract base classes:
+
+```
+MessageRouter: 3 message type(s), 0 connect handler(s), 0 disconnect handler(s)
+  GameRequest -> 1 handler(s)
+  Message -> 1 handler(s)
+  OrderPlaceRequest -> 1 handler(s)
+```
+
+### Abstract intermediate classes
+
+- **Validation**: constraint annotations on fields declared in abstract superclasses are validated together with the fields of the concrete class.
+- **Serialization**: messages use Java serialization, so the fields of every class in the chain are transmitted and the concrete type is restored on the receiving side. Lombok `@SuperBuilder` and `final` fields work as usual.
+- Declare an explicit `serialVersionUID` in the intermediate class as well. Otherwise the client and the server may compute different values if they are built separately, and deserialization fails with `InvalidClassException`.
 
 ## Message Validation
 
