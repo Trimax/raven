@@ -44,7 +44,7 @@ Add dependency:
 <dependency>
     <groupId>io.github.trimax</groupId>
     <artifactId>raven-spring-server</artifactId>
-    <version>1.4.0</version>
+    <version>1.4.1</version>
 </dependency>
 ```
 
@@ -86,7 +86,7 @@ Add dependency:
 <dependency>
     <groupId>io.github.trimax</groupId>
     <artifactId>raven-spring-client</artifactId>
-    <version>1.4.0</version>
+    <version>1.4.1</version>
 </dependency>
 ```
 
