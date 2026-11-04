@@ -25,6 +25,8 @@ final class Connection {
         this.connected = new AtomicBoolean(true);
         this.outputStream = new ObjectOutputStream(socket.getOutputStream());
         this.inputStream = new ObjectInputStream(socket.getInputStream());
+        // Untrusted peer input: only Message subclasses and safe JDK value types may be deserialized
+        this.inputStream.setObjectInputFilter(MessageInputFilter.INSTANCE);
     }
 
     /**
