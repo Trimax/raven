@@ -63,8 +63,13 @@ public final class RavenServer {
 
         log.info("RavenServer stopping...");
 
-        clients.values().forEach(this::disconnectClient);
-        clients.clear();
+        // Each client is removed from the registry before it is disconnected, so exactly one of stop() and
+        // the client's own receive loop reports its disconnect
+        for (final var id : clients.keySet()) {
+            final var client = clients.remove(id);
+            if (client != null)
+                disconnectClient(client);
+        }
 
         try {
             socket.close();
@@ -190,7 +195,8 @@ public final class RavenServer {
             configuration.getHandler().onMessage(client, message);
         }
 
-        if (isRunning() && clients.remove(client.getId()) != null)
+        // Removal from the registry decides who reports the disconnect, so onDisconnect runs once per client
+        if (clients.remove(client.getId()) != null)
             disconnectClient(client);
     }
 
