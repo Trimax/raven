@@ -1,6 +1,7 @@
 package io.github.trimax.raven.core;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 
 import io.github.trimax.raven.core.config.RavenClientConfiguration;
@@ -21,6 +22,10 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @RequiredArgsConstructor
 public final class RavenClient {
+
+    /** Maximum time to establish the TCP connection and complete the stream handshake. */
+    static final int CONNECT_TIMEOUT_MS = 10_000;
+
     @NonNull
     private final RavenClientConfiguration configuration;
 
@@ -29,23 +34,51 @@ public final class RavenClient {
 
     /**
      * Connects to the server. Does nothing if already connected.
+     * <p>
+     * Network I/O runs outside the client's monitor, so {@link #isConnected()}, {@link #send(Message)} and
+     * {@link #disconnect()} remain responsive while a connection attempt is blocked.
      */
-    public synchronized void connect() {
-        if (isConnected())
-            return;
+    public void connect() {
+        synchronized (this) {
+            if (isConnected())
+                return;
+        }
 
+        final Connection newConnection;
         try {
-            final var socket = new Socket(configuration.getHost(), configuration.getPort());
-            connection = new Connection(socket);
+            newConnection = openConnection();
+        } catch (final IOException ex) {
+            log.warn("RavenClient failed to connect to {}:{} - {}", configuration.getHost(), configuration.getPort(), ex.getMessage());
+            return;
+        }
 
+        synchronized (this) {
+            if (isConnected()) {
+                // Another thread connected while this one was in progress
+                newConnection.disconnect();
+                return;
+            }
+
+            connection = newConnection;
             log.info("RavenClient connected to {}:{}", configuration.getHost(), configuration.getPort());
             configuration.getHandler().onConnect();
 
-            final var currentConnection = connection;
-            receiverThread = Thread.ofVirtual().name("raven-receiver").start(() -> receiveLoop(currentConnection));
-        } catch (final IOException ex) {
-            log.warn("RavenClient failed to connect to {}:{} - {}", configuration.getHost(), configuration.getPort(), ex.getMessage());
-            connection = null;
+            receiverThread = Thread.ofVirtual().name("raven-receiver").start(() -> receiveLoop(newConnection));
+        }
+    }
+
+    private Connection openConnection() throws IOException {
+        final var socket = new Socket();
+        try {
+            socket.connect(new InetSocketAddress(configuration.getHost(), configuration.getPort()), CONNECT_TIMEOUT_MS);
+            // Bound the stream-header exchange, which otherwise blocks until the server writes its header
+            socket.setSoTimeout(CONNECT_TIMEOUT_MS);
+            final var newConnection = new Connection(socket);
+            socket.setSoTimeout(0);
+            return newConnection;
+        } catch (final IOException | RuntimeException ex) {
+            socket.close();
+            throw ex;
         }
     }
 
