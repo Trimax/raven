@@ -30,6 +30,9 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public final class RavenServer {
 
+    /** Maximum time a new connection may take to send its stream header before it is dropped. */
+    static final int HANDSHAKE_TIMEOUT_MS = 5_000;
+
     @NonNull
     private final RavenServerConfiguration configuration;
 
@@ -169,7 +172,8 @@ public final class RavenServer {
                 continue;
             }
 
-            acceptConnection(clientSocket);
+            // The handshake blocks on the peer's stream header, so it must not run on the accept thread
+            Thread.ofVirtual().name("raven-handshake").start(() -> acceptConnection(clientSocket));
         }
     }
 
@@ -180,7 +184,9 @@ public final class RavenServer {
     private void acceptConnection(final Socket clientSocket) {
         final Client client;
         try {
+            clientSocket.setSoTimeout(HANDSHAKE_TIMEOUT_MS);
             client = new Client(clientSocket);
+            clientSocket.setSoTimeout(0);
         } catch (final IOException ex) {
             if (isRunning())
                 log.error("Error setting up connection from {}: {}", clientSocket.getRemoteSocketAddress(), ex.getMessage());
