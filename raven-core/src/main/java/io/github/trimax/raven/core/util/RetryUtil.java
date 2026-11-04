@@ -16,12 +16,13 @@ public final class RetryUtil {
     /**
      * Executes a {@link ThrowingRunnable} operation with retry logic.
      * Retries on any exception according to the given strategy.
-     * If the strategy is exhausted, throws {@link UnsupportedOperationException}.
+     * When the strategy returns a negative delay, the last exception thrown by the operation
+     * is rethrown as-is; no wrapper exception is created.
      *
      * @param <E>       the type of exception the operation may throw
      * @param operation the operation to execute
      * @param strategy  the retry strategy defining delays and max attempts
-     * @throws E if the operation throws a non-retryable exception
+     * @throws E if the operation still fails after the strategy stops retrying
      */
     public static <E extends Exception> void execute(final ThrowingRunnable<E> operation,
                                                      final RetryStrategy strategy) throws E {
@@ -34,14 +35,15 @@ public final class RetryUtil {
     /**
      * Executes a {@link ThrowingSupplier} operation with retry logic and returns the result.
      * Retries on any exception according to the given strategy.
-     * If the strategy is exhausted, throws {@link UnsupportedOperationException}.
+     * When the strategy returns a negative delay, the last exception thrown by the operation
+     * is rethrown as-is; no wrapper exception is created.
      *
      * @param <R>       the type of result returned by the operation
      * @param <E>       the type of exception the operation may throw
      * @param operation the operation to execute
      * @param strategy  the retry strategy defining delays and max attempts
      * @return the result of the operation if it succeeds
-     * @throws E if the operation throws a non-retryable exception
+     * @throws E if the operation still fails after the strategy stops retrying
      */
     public static <R, E extends Exception> R execute(final ThrowingSupplier<R, E> operation,
                                                      final RetryStrategy strategy) throws E {
