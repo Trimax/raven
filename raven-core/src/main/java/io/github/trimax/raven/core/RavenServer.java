@@ -2,6 +2,7 @@ package io.github.trimax.raven.core;
 
 import java.io.IOException;
 import java.net.ServerSocket;
+import java.net.Socket;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -12,6 +13,7 @@ import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.util.ArrayUtil;
 import io.github.trimax.raven.core.util.InterceptorUtil;
 import io.github.trimax.raven.core.util.MeasurementUtil;
+import io.github.trimax.raven.core.util.TryUtil;
 import io.github.trimax.raven.core.validation.MessageValidator;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
@@ -154,27 +156,56 @@ public final class RavenServer {
 
     private void acceptLoop() {
         while (isRunning()) {
+            final Socket clientSocket;
             try {
                 final var socket = serverSocket.get();
                 if (socket == null)
                     break;
 
-                final var clientSocket = socket.accept();
-                final var client = new Client(clientSocket);
-
-                clients.put(client.getId(), client);
-                log.info("Client connected: {} ({})", client.getId(), clientSocket.getRemoteSocketAddress());
-
-                configuration.getHandler().onConnect(client);
-
-                Thread.ofVirtual()
-                        .name("raven-client-" + client.getId())
-                        .start(() -> receiveLoop(client));
+                clientSocket = socket.accept();
             } catch (final IOException ex) {
                 if (isRunning())
                     log.error("Error accepting connection: {}", ex.getMessage());
+                continue;
             }
+
+            acceptConnection(clientSocket);
         }
+    }
+
+    /**
+     * Sets up one accepted connection. Any failure, including an unchecked exception thrown by the
+     * handler's {@code onConnect}, is contained here so that the accept loop keeps running.
+     */
+    private void acceptConnection(final Socket clientSocket) {
+        final Client client;
+        try {
+            client = new Client(clientSocket);
+        } catch (final IOException ex) {
+            if (isRunning())
+                log.error("Error setting up connection from {}: {}", clientSocket.getRemoteSocketAddress(), ex.getMessage());
+            TryUtil.execute(clientSocket::close);
+            return;
+        }
+
+        try {
+            registerClient(client, clientSocket);
+        } catch (final RuntimeException ex) {
+            log.error("Handler failed on connect for {}: {}", clientSocket.getRemoteSocketAddress(), ex.getMessage(), ex);
+            clients.remove(client.getId());
+            client.disconnect();
+        }
+    }
+
+    private void registerClient(final Client client, final Socket clientSocket) {
+        clients.put(client.getId(), client);
+        log.info("Client connected: {} ({})", client.getId(), clientSocket.getRemoteSocketAddress());
+
+        configuration.getHandler().onConnect(client);
+
+        Thread.ofVirtual()
+                .name("raven-client-" + client.getId())
+                .start(() -> receiveLoop(client));
     }
 
     private void receiveLoop(final Client client) {
