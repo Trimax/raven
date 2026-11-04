@@ -5,8 +5,11 @@ import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import io.github.trimax.raven.core.Message;
@@ -68,7 +71,9 @@ public final class MessageValidator {
      */
     public static List<Violation> validate(final Message message) {
         final List<Violation> violations = new ArrayList<>();
-        validateObject(message, "", violations);
+        final Set<Object> ancestors = newAncestorSet();
+        ancestors.add(message);
+        validateObject(message, "", violations, ancestors);
 
         return violations;
     }
@@ -85,14 +90,16 @@ public final class MessageValidator {
             throw new MessageValidationRavenException(message.getClass(), violations);
     }
 
-    private static void validateObject(final Object object, final String prefix, final List<Violation> violations) {
+    private static void validateObject(final Object object, final String prefix, final List<Violation> violations,
+                                       final Set<Object> ancestors) {
         final var fields = CACHE.computeIfAbsent(object.getClass(), MessageValidator::scanFields);
 
         for (final var field : fields)
-            validateField(object, prefix, violations, field);
+            validateField(object, prefix, violations, field, ancestors);
     }
 
-    private static void validateField(final Object object, final String prefix, final List<Violation> violations, final FieldMetadata field) {
+    private static void validateField(final Object object, final String prefix, final List<Violation> violations,
+                                      final FieldMetadata field, final Set<Object> ancestors) {
         final Object value;
         try {
             value = field.field().get(object);
@@ -108,39 +115,59 @@ public final class MessageValidator {
         }
 
         if (field.recursive() && value != null)
-            validateRecursive(value, fieldPath, violations);
+            validateRecursive(value, fieldPath, violations, ancestors);
     }
 
-    private static void validateRecursive(final Object value, final String path, final List<Violation> violations) {
-        if (value instanceof Collection<?> collection) {
-            validateCollection(path, violations, collection);
+    private static void validateRecursive(final Object value, final String path, final List<Violation> violations,
+                                          final Set<Object> ancestors) {
+        // A reference already on the current path means a cycle: its constraints were checked higher up,
+        // so skipping it keeps validation finite without losing any violation
+        if (!ancestors.add(value))
             return;
-        }
 
-        if (value.getClass().isArray()) {
-            validateArray(value, path, violations);
-            return;
-        }
+        try {
+            if (value instanceof Collection<?> collection) {
+                validateCollection(path, violations, collection, ancestors);
+                return;
+            }
 
-        validateObject(value, path, violations);
+            if (value.getClass().isArray()) {
+                validateArray(value, path, violations, ancestors);
+                return;
+            }
+
+            validateObject(value, path, violations, ancestors);
+        } finally {
+            ancestors.remove(value);
+        }
     }
 
-    private static void validateArray(final Object value, final String path, final List<Violation> violations) {
+    private static void validateArray(final Object value, final String path, final List<Violation> violations,
+                                      final Set<Object> ancestors) {
         final int length = Array.getLength(value);
         for (int i = 0; i < length; i++) {
             final var element = Array.get(value, i);
             if (element != null)
-                validateRecursive(element, path + "[" + i + "]", violations);
+                validateRecursive(element, path + "[" + i + "]", violations, ancestors);
         }
     }
 
-    private static void validateCollection(final String path, final List<Violation> violations, final Collection<?> collection) {
+    private static void validateCollection(final String path, final List<Violation> violations,
+                                           final Collection<?> collection, final Set<Object> ancestors) {
         int index = 0;
         for (final var element : collection) {
             if (element != null)
-                validateRecursive(element, path + "[" + index + "]", violations);
+                validateRecursive(element, path + "[" + index + "]", violations, ancestors);
             index++;
         }
+    }
+
+    /**
+     * Identity-based set of objects on the current validation path. Identity is used because user types may
+     * override equals/hashCode, and a cycle is defined by reference, not by value.
+     */
+    private static Set<Object> newAncestorSet() {
+        return Collections.newSetFromMap(new IdentityHashMap<>());
     }
 
     private static List<FieldMetadata> scanFields(final Class<?> clazz) {
