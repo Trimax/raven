@@ -209,26 +209,36 @@ public final class RavenServer {
     }
 
     private void receiveLoop(final Client client) {
-        while (client.isConnected() && isRunning()) {
-            final var message = client.receive();
-            if (message == null)
-                break;
+        try {
+            while (client.isConnected() && isRunning()) {
+                final var message = client.receive();
+                if (message == null)
+                    break;
 
-            final var violations = MessageValidator.validate(message);
-            if (!violations.isEmpty()) {
-                log.warn("Received invalid {} from {}: {}", message.getClass().getSimpleName(), client.getId(), violations);
-                continue;
+                final var violations = MessageValidator.validate(message);
+                if (!violations.isEmpty()) {
+                    log.warn("Received invalid {} from {}: {}", message.getClass().getSimpleName(), client.getId(), violations);
+                    continue;
+                }
+
+                if (!InterceptorUtil.shouldProceed(configuration.getInterceptors(), client, message))
+                    continue;
+
+                try {
+                    configuration.getHandler().onMessage(client, message);
+                } catch (final RuntimeException ex) {
+                    // A failing handler ends this session; finally below releases the connection
+                    log.error("Handler failed for message from {}, closing connection: {}", client.getId(), ex.getMessage(), ex);
+                    return;
+                }
             }
-
-            if (!InterceptorUtil.shouldProceed(configuration.getInterceptors(), client, message))
-                continue;
-
-            configuration.getHandler().onMessage(client, message);
+        } finally {
+            // Runs on normal exit and on errors, so the socket is never left open
+            client.disconnect();
+            // Removal from the registry decides who reports the disconnect, so onDisconnect runs once per client
+            if (clients.remove(client.getId()) != null)
+                disconnectClient(client);
         }
-
-        // Removal from the registry decides who reports the disconnect, so onDisconnect runs once per client
-        if (clients.remove(client.getId()) != null)
-            disconnectClient(client);
     }
 
     private void disconnectClient(final Client client) {

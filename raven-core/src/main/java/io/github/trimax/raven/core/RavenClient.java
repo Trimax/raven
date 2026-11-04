@@ -97,26 +97,35 @@ public final class RavenClient {
     }
 
     private void receiveLoop(final Connection activeConnection) {
-        while (activeConnection.isConnected()) {
-            final var message = activeConnection.receive();
-            if (message == null)
-                break;
+        try {
+            while (activeConnection.isConnected()) {
+                final var message = activeConnection.receive();
+                if (message == null)
+                    break;
 
-            final var violations = MessageValidator.validate(message);
-            if (!violations.isEmpty()) {
-                log.warn("Received invalid {}: {}", message.getClass().getSimpleName(), violations);
-                continue;
+                final var violations = MessageValidator.validate(message);
+                if (!violations.isEmpty()) {
+                    log.warn("Received invalid {}: {}", message.getClass().getSimpleName(), violations);
+                    continue;
+                }
+
+                if (!InterceptorUtil.shouldProceed(configuration.getInterceptors(), message))
+                    continue;
+
+                try {
+                    configuration.getHandler().onMessage(message);
+                } catch (final RuntimeException ex) {
+                    // A failing handler ends this session; finally below releases the connection
+                    log.error("Handler failed for received message, closing connection: {}", ex.getMessage(), ex);
+                    return;
+                }
             }
-
-            if (!InterceptorUtil.shouldProceed(configuration.getInterceptors(), message))
-                continue;
-
-            configuration.getHandler().onMessage(message);
-        }
-
-        synchronized (this) {
-            if (connection == activeConnection) {
-                disconnect();
+        } finally {
+            // Runs on normal exit and on errors, so the socket is never left open
+            activeConnection.disconnect();
+            synchronized (this) {
+                if (connection == activeConnection)
+                    disconnect();
             }
         }
     }
