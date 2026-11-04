@@ -4,6 +4,7 @@ import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.net.Socket;
+import java.time.Duration;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
@@ -77,6 +78,7 @@ class RavenServerHandshakeTest {
     void silentPeerIsDroppedAfterHandshakeTimeout() throws Exception {
         final var server = new RavenServer(RavenServerConfiguration.builder()
                 .port(0)
+                .handshakeTimeout(Duration.ofMillis(500))
                 .handler(new ServerHandler() {
                     @Override
                     public void onConnect(final Client client) {
@@ -94,7 +96,7 @@ class RavenServerHandshakeTest {
         server.start();
 
         try (final var silent = new Socket("localhost", server.getPort())) {
-            silent.setSoTimeout(RavenServer.HANDSHAKE_TIMEOUT_MS + 5_000);
+            silent.setSoTimeout(5_000);
             // The server writes its own stream header, then closes the socket after the handshake timeout
             final var in = silent.getInputStream();
             while (in.read() != -1) {

@@ -3,7 +3,9 @@ package io.github.trimax.raven.core;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.time.Duration;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -16,7 +18,6 @@ import io.github.trimax.raven.core.util.MeasurementUtil;
 import io.github.trimax.raven.core.util.TryUtil;
 import io.github.trimax.raven.core.validation.MessageValidator;
 import lombok.NonNull;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -27,17 +28,17 @@ import lombok.extern.slf4j.Slf4j;
  * This class has no Spring dependencies — it is a plain Java transport layer.
  */
 @Slf4j
-@RequiredArgsConstructor
 public final class RavenServer {
-
-    /** Maximum time a new connection may take to send its stream header before it is dropped. */
-    static final int HANDSHAKE_TIMEOUT_MS = 5_000;
 
     @NonNull
     private final RavenServerConfiguration configuration;
 
     private final Map<UUID, Client> clients = new ConcurrentHashMap<>();
     private final AtomicReference<ServerSocket> serverSocket = new AtomicReference<>();
+
+    public RavenServer(final RavenServerConfiguration configuration) {
+        this.configuration = validate(configuration);
+    }
 
     /**
      * Starts the server and begins accepting connections.
@@ -184,7 +185,7 @@ public final class RavenServer {
     private void acceptConnection(final Socket clientSocket) {
         final Client client;
         try {
-            clientSocket.setSoTimeout(HANDSHAKE_TIMEOUT_MS);
+            clientSocket.setSoTimeout(toSocketTimeoutMillis(configuration.getHandshakeTimeout()));
             client = new Client(clientSocket);
             clientSocket.setSoTimeout(0);
         } catch (final IOException ex) {
@@ -252,5 +253,22 @@ public final class RavenServer {
         configuration.getHandler().onDisconnect(client);
 
         log.info("Client disconnected: {}", client.getId());
+    }
+
+    private static RavenServerConfiguration validate(final RavenServerConfiguration configuration) {
+        Objects.requireNonNull(configuration, "configuration must not be null");
+
+        // A zero socket timeout means "wait forever", so a zero or negative handshake timeout would disable the protection
+        final var timeout = configuration.getHandshakeTimeout();
+        if (timeout.isZero() || timeout.isNegative())
+            throw new IllegalArgumentException("handshakeTimeout must be positive, got " + timeout);
+        if (timeout.toMillis() > Integer.MAX_VALUE)
+            throw new IllegalArgumentException("handshakeTimeout is too large: " + timeout);
+
+        return configuration;
+    }
+
+    private static int toSocketTimeoutMillis(final Duration timeout) {
+        return (int) timeout.toMillis();
     }
 }
