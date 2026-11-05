@@ -30,12 +30,10 @@ public final class Client {
     }
 
     /**
-     * Reads the next message. Blocks until available.
-     *
-     * @return the received message, or null on error/disconnect
+     * Returns the underlying connection, for the server's receive loop.
      */
-    Message receive() {
-        return connection.receive();
+    Connection connection() {
+        return connection;
     }
 
     /**

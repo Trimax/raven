@@ -107,7 +107,8 @@ public final class RavenClient {
                 return;
             }
 
-            receiverThread = Thread.ofVirtual().name("raven-receiver").start(() -> receiveLoop(newConnection));
+            receiverThread = Thread.ofVirtual().name("raven-receiver").start(() ->
+                    ReceiveLoop.run(newConnection, () -> true, this::deliver, () -> onSessionEnded(newConnection)));
         }
     }
 
@@ -200,35 +201,32 @@ public final class RavenClient {
                 duration -> log.debug("Message queued in {}ms", duration.toMillis()));
     }
 
-    private void receiveLoop(final Connection activeConnection) {
-        try {
-            while (activeConnection.isConnected()) {
-                final var message = activeConnection.receive();
-                if (message == null)
-                    break;
-
-                final var violations = MessageValidator.validate(message);
-                if (!violations.isEmpty()) {
-                    log.warn("Received invalid {}: {}", message.getClass().getSimpleName(), violations);
-                    continue;
-                }
-
-                if (!InterceptorUtil.shouldProceed(configuration.getInterceptors(), message))
-                    continue;
-
-                // A failing handler ends this session; finally below releases the connection
-                if (!HandlingUtil.callHandler(() -> configuration.getHandler().onMessage(message), () -> "for received message"))
-                    return;
-            }
-        } finally {
-            // Runs on normal exit and on errors, so the socket is never left open
-            activeConnection.disconnect();
-            synchronized (this) {
-                // Not disconnect(): that would also abort a reconnect attempt started after this connection dropped
-                if (connection == activeConnection)
-                    closeConnection();
-            }
+    /**
+     * Validates a received message, passes it through the interceptor chain and dispatches it to the handler.
+     *
+     * @return {@code false} if the handler failed and the session must end
+     */
+    private boolean deliver(final Message message) {
+        final var violations = MessageValidator.validate(message);
+        if (!violations.isEmpty()) {
+            log.warn("Received invalid {}: {}", message.getClass().getSimpleName(), violations);
+            return true;
         }
+
+        if (!InterceptorUtil.shouldProceed(configuration.getInterceptors(), message))
+            return true;
+
+        // A failing handler ends this session; the receive loop then releases the connection
+        return HandlingUtil.callHandler(() -> configuration.getHandler().onMessage(message), () -> "for received message");
+    }
+
+    /**
+     * Called once the receive loop of {@code activeConnection} has ended and disconnected it.
+     */
+    private synchronized void onSessionEnded(final Connection activeConnection) {
+        // Not disconnect(): that would also abort a reconnect attempt started after this connection dropped
+        if (connection == activeConnection)
+            closeConnection();
     }
 
     private static int toSocketTimeoutMillis(final Duration timeout) {

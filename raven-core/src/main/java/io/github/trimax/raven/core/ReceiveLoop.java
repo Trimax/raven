@@ -1,66 +1,40 @@
 package io.github.trimax.raven.core;
 
-import java.util.List;
 import java.util.function.BooleanSupplier;
-import java.util.function.Consumer;
+import java.util.function.Predicate;
 
-import io.github.trimax.raven.core.handler.ServerHandler;
-import io.github.trimax.raven.core.interceptor.ServerMessageInterceptor;
-import io.github.trimax.raven.core.util.HandlingUtil;
-import io.github.trimax.raven.core.util.InterceptorUtil;
-import io.github.trimax.raven.core.validation.MessageValidator;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 
 /**
- * Reads messages from one client until the session ends. Each message is validated, passed through the
- * interceptor chain and dispatched to the handler.
+ * Reads messages from one connection until the session ends, shared by the server and the client.
+ * What happens to each message (validation, interceptors, the handler) is up to the caller's {@code deliver}.
  */
-@Slf4j
-@RequiredArgsConstructor
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 final class ReceiveLoop {
 
-    /** Receives the validated, intercepted messages. */
-    private final ServerHandler handler;
-
-    /** Interceptor chain applied to every message before the handler. */
-    private final List<ServerMessageInterceptor> interceptors;
-
-    /** Whether the owning server is still running. */
-    private final BooleanSupplier running;
-
-    /** Invoked once the session ends, after the client has been disconnected. */
-    private final Consumer<Client> onSessionEnded;
-
     /**
-     * Runs the receive loop for the client on the current thread.
-     * Ends when the client disconnects, the server stops, or the handler throws.
-     * The client is always disconnected and {@code onSessionEnded} is always invoked afterward.
+     * Runs the receive loop for the connection on the current thread.
+     * Ends when the connection closes, {@code running} turns false, or {@code deliver} returns {@code false}.
+     * The connection is always disconnected and {@code onEnded} is always invoked afterward.
+     *
+     * @param connection the connection to read from
+     * @param running    whether the owner still wants messages; checked before each receive
+     * @param deliver    handles one message; {@code false} ends the session
+     * @param onEnded    invoked once the session ends, after the connection has been disconnected
      */
-    void run(final Client client) {
+    static void run(final Connection connection, final BooleanSupplier running,
+                    final Predicate<Message> deliver, final Runnable onEnded) {
         try {
-            while (client.isConnected() && running.getAsBoolean()) {
-                final var message = client.receive();
-                if (message == null)
+            while (connection.isConnected() && running.getAsBoolean()) {
+                final var message = connection.receive();
+                if (message == null || !deliver.test(message))
                     break;
-
-                final var violations = MessageValidator.validate(message);
-                if (!violations.isEmpty()) {
-                    log.warn("Received invalid {} from {}: {}", message.getClass().getSimpleName(), client.getId(), violations);
-                    continue;
-                }
-
-                if (!InterceptorUtil.shouldProceed(interceptors, client, message))
-                    continue;
-
-                // A failing handler ends this session; the finally block releases the connection
-                if (!HandlingUtil.callHandler(() -> handler.onMessage(client, message),
-                        () -> "for message from " + client.getId()))
-                    return;
             }
         } finally {
-            client.disconnect();
-            onSessionEnded.accept(client);
+            // Runs on normal exit and on errors, so the socket is never left open
+            connection.disconnect();
+            onEnded.run();
         }
     }
 }

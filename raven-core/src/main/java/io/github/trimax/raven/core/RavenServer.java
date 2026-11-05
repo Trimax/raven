@@ -10,6 +10,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.util.ArrayUtil;
 import io.github.trimax.raven.core.util.HandlingUtil;
+import io.github.trimax.raven.core.util.InterceptorUtil;
 import io.github.trimax.raven.core.util.MeasurementUtil;
 import io.github.trimax.raven.core.util.TryUtil;
 import io.github.trimax.raven.core.validation.MessageValidator;
@@ -24,7 +25,7 @@ import lombok.extern.slf4j.Slf4j;
  * <ul>
  *   <li>{@link ClientRegistry} — the set of connected clients and the exactly-once disconnect rule;</li>
  *   <li>{@link ConnectionAcceptor} — the accept loop and the bounded handshake of each new connection;</li>
- *   <li>{@link ReceiveLoop} — reading, validating, intercepting and dispatching messages per client.</li>
+ *   <li>{@link ReceiveLoop} — reading messages per client until the session ends.</li>
  * </ul>
  *
  * <p>Uses virtual threads for the acceptance loop, the handshakes and per-client receiver loops.
@@ -36,7 +37,6 @@ public final class RavenServer {
     @NonNull
     private final RavenServerConfiguration configuration;
 
-    private final ReceiveLoop receiveLoop;
     private final ConnectionAcceptor acceptor;
 
     private final ClientRegistry clients = new ClientRegistry();
@@ -48,8 +48,6 @@ public final class RavenServer {
         this.configuration = configuration;
         this.acceptor = new ConnectionAcceptor(this.configuration,
                 this::isRunning, this::onConnectionAccepted);
-        this.receiveLoop = new ReceiveLoop(this.configuration.getHandler(), this.configuration.getInterceptors(),
-                this::isRunning, this::onSessionEnded);
     }
 
     /**
@@ -207,7 +205,28 @@ public final class RavenServer {
 
         Thread.ofVirtual()
                 .name("raven-client-" + client.getId())
-                .start(() -> receiveLoop.run(client));
+                .start(() -> ReceiveLoop.run(client.connection(), this::isRunning,
+                        message -> deliver(client, message), () -> onSessionEnded(client)));
+    }
+
+    /**
+     * Validates a received message, passes it through the interceptor chain and dispatches it to the handler.
+     *
+     * @return {@code false} if the handler failed and the session must end
+     */
+    private boolean deliver(final Client client, final Message message) {
+        final var violations = MessageValidator.validate(message);
+        if (!violations.isEmpty()) {
+            log.warn("Received invalid {} from {}: {}", message.getClass().getSimpleName(), client.getId(), violations);
+            return true;
+        }
+
+        if (!InterceptorUtil.shouldProceed(configuration.getInterceptors(), client, message))
+            return true;
+
+        // A failing handler ends this session; the receive loop then releases the connection
+        return HandlingUtil.callHandler(() -> configuration.getHandler().onMessage(client, message),
+                () -> "for message from " + client.getId());
     }
 
     /**
