@@ -17,7 +17,7 @@ class ConnectionSetupFailureTest {
     void closesSocketWhenStreamSetupFails() {
         final var socket = new FailingInputSocket();
 
-        assertThrows(IOException.class, () -> new Connection(socket));
+        assertThrows(IOException.class, () -> TestConnections.open(socket));
         assertTrue(socket.isClosed(), "socket must be closed when Connection construction fails");
     }
 

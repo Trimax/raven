@@ -58,6 +58,10 @@ public class ServerApp { }
 Configure:
 ```properties
 raven.server.port=9090
+# Optional: outgoing messages queued per client before send() applies back-pressure (default 1024)
+raven.server.send-queue-capacity=1024
+# Optional: how long send() waits for queue space before disconnecting a stalled client (default 5s)
+raven.server.send-timeout=5s
 ```
 
 Write a handler:
@@ -103,6 +107,10 @@ raven.client.host=localhost
 raven.client.port=9090
 # Optional: limit for opening the connection and completing the handshake (default 10s)
 raven.client.connect-timeout=10s
+# Optional: outgoing messages queued before send() applies back-pressure (default 1024)
+raven.client.send-queue-capacity=1024
+# Optional: how long send() waits for queue space before disconnecting (default 5s)
+raven.client.send-timeout=5s
 ```
 
 Write a handler:

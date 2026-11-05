@@ -38,7 +38,7 @@ public final class RavenServerConfiguration extends AbstractRavenConfiguration {
     private final Duration handshakeTimeout = Duration.ofSeconds(5);
 
     @Override
-    public void validate() {
+    void validateSpecific() {
         // A zero socket timeout means "wait forever", so a timeout that truncates to 0 ms would disable the protection
         final var timeout = getHandshakeTimeout();
         if (timeout.toMillis() < 1)

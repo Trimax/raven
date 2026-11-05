@@ -131,7 +131,7 @@ public final class RavenClient {
         }
 
         // Connection closes the socket itself if its construction fails
-        final var newConnection = new Connection(socket);
+        final var newConnection = new Connection(socket, configuration.getSendQueueCapacity(), configuration.getSendTimeout());
         try {
             socket.setSoTimeout(0);
         } catch (final IOException | RuntimeException ex) {
@@ -182,6 +182,11 @@ public final class RavenClient {
     /**
      * Sends a message to the server. Thread-safe.
      *
+     * <p>Delivery is asynchronous: the call returns once the message is queued for the connection's writer.
+     * If that queue is full, it blocks for up to the configured {@code sendTimeout} (5 seconds by default) and then disconnects the stalled peer.
+     * Write errors are logged and close the connection rather than being thrown; messages still queued
+     * when a connection is closed are dropped.
+     *
      * @param message the message to send
      */
     public void send(final Message message) {
@@ -197,7 +202,7 @@ public final class RavenClient {
 
         MessageValidator.validateOrThrow(message);
         MeasurementUtil.measure(() -> currentConnection.send(message),
-                duration -> log.debug("Message sent in {}ms", duration.toMillis()));
+                duration -> log.debug("Message queued in {}ms", duration.toMillis()));
     }
 
     private void receiveLoop(final Connection activeConnection) {

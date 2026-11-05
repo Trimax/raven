@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -26,14 +27,14 @@ class ConnectionTest {
             Thread.ofVirtual().start(() -> {
                 try {
                     final var accepted = serverSocket.accept();
-                    new Connection(accepted);
+                    TestConnections.open(accepted);
                     latch.countDown();
                 } catch (final IOException ignored) {
                 }
             });
 
             final var socket = new Socket("localhost", port);
-            final var connection = new Connection(socket);
+            final var connection = TestConnections.open(socket);
 
             final var ignored = latch.await(2, TimeUnit.SECONDS);
             assertTrue(connection.isConnected());
@@ -50,7 +51,7 @@ class ConnectionTest {
              final var socket = new Socket("localhost", serverSocket.getLocalPort());
              final var peer = serverSocket.accept()) {
             new ObjectOutputStream(peer.getOutputStream()).flush();
-            final var connection = new Connection(socket);
+            final var connection = TestConnections.open(socket);
 
             connection.disconnect();
 
@@ -66,7 +67,7 @@ class ConnectionTest {
              final var socket = new Socket("localhost", serverSocket.getLocalPort());
              final var peer = serverSocket.accept()) {
             new ObjectOutputStream(peer.getOutputStream()).flush();
-            final var connection = new Connection(socket);
+            final var connection = TestConnections.open(socket);
 
             connection.disconnect();
             assertDoesNotThrow(connection::disconnect);
@@ -80,7 +81,7 @@ class ConnectionTest {
              final var socket = new Socket("localhost", serverSocket.getLocalPort());
              final var peer = serverSocket.accept()) {
             new ObjectOutputStream(peer.getOutputStream()).flush();
-            final var connection = new Connection(socket);
+            final var connection = TestConnections.open(socket);
 
             connection.disconnect();
             assertDoesNotThrow(() -> connection.send(new TestMessage("should not throw")));
@@ -93,13 +94,29 @@ class ConnectionTest {
              final var socket = new Socket("localhost", serverSocket.getLocalPort())) {
             final var peer = serverSocket.accept();
             new ObjectOutputStream(peer.getOutputStream()).flush();
-            final var connection = new Connection(socket);
+            final var connection = TestConnections.open(socket);
 
             peer.close();
 
             assertNull(connection.receive());
             assertFalse(connection.isConnected());
             assertTrue(socket.isClosed(), "socket must be closed once the peer has closed the connection");
+        }
+    }
+
+    @Test
+    void peerCloseStopsWriterThread() throws Exception {
+        try (final var serverSocket = new ServerSocket(0);
+             final var socket = new Socket("localhost", serverSocket.getLocalPort())) {
+            final var peer = serverSocket.accept();
+            new ObjectOutputStream(peer.getOutputStream()).flush();
+            final var connection = TestConnections.open(socket);
+
+            peer.close();
+
+            assertNull(connection.receive());
+            assertTrue(connection.writer.join(Duration.ofSeconds(5)), "writer thread must terminate once the peer has closed");
+            assertTrue(socket.isClosed());
         }
     }
 
@@ -122,7 +139,7 @@ class ConnectionTest {
             });
 
             final var socket = new Socket("localhost", port);
-            final var connection = new Connection(socket);
+            final var connection = TestConnections.open(socket);
 
             latch.await(2, TimeUnit.SECONDS);
 
@@ -143,14 +160,14 @@ class ConnectionTest {
             Thread.ofVirtual().start(() -> {
                 try {
                     final var accepted = serverSocket.accept();
-                    serverConnection.set(new Connection(accepted));
+                    serverConnection.set(TestConnections.open(accepted));
                     latch.countDown();
                 } catch (final IOException ignored) {
                 }
             });
 
             final var socket = new Socket("localhost", port);
-            final var clientConnection = new Connection(socket);
+            final var clientConnection = TestConnections.open(socket);
 
             final var ignored = latch.await(2, TimeUnit.SECONDS);
 

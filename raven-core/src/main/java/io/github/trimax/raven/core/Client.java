@@ -2,6 +2,7 @@ package io.github.trimax.raven.core;
 
 import java.io.IOException;
 import java.net.Socket;
+import java.time.Duration;
 import java.util.UUID;
 
 import lombok.Getter;
@@ -16,9 +17,9 @@ public final class Client {
     private final UUID id;
     private final Connection connection;
 
-    Client(final Socket socket) throws IOException {
+    Client(final Socket socket, final int sendQueueCapacity, final Duration sendTimeout) throws IOException {
         this.id = UUID.randomUUID();
-        this.connection = new Connection(socket);
+        this.connection = new Connection(socket, sendQueueCapacity, sendTimeout);
     }
 
     /**

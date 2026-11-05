@@ -44,7 +44,7 @@ public final class RavenServer {
         configuration.validate();
 
         this.configuration = configuration;
-        this.acceptor = new ConnectionAcceptor(this.configuration.getHandshakeTimeout(),
+        this.acceptor = new ConnectionAcceptor(this.configuration,
                 this::isRunning, this::onConnectionAccepted);
         this.receiveLoop = new ReceiveLoop(this.configuration.getHandler(), this.configuration.getInterceptors(),
                 this::isRunning, this::onSessionEnded);
@@ -99,18 +99,28 @@ public final class RavenServer {
     /**
      * Broadcasts a message to all connected clients.
      *
+     * <p>Delivery is asynchronous: the call returns once the message is queued for each recipient.
+     * If a recipient's queue is full, it blocks for up to the configured {@code sendTimeout} (5 seconds by default) per recipient and then disconnects
+     * that stalled peer. Write errors are logged and close the connection rather than being thrown; messages
+     * still queued when a connection is closed are dropped.
+     *
      * @param message the message to broadcast
      */
     public void broadcast(final Message message) {
         MessageValidator.validateOrThrow(message);
 
         MeasurementUtil.measure(() -> send(message, clients.ids()),
-                duration -> log.debug("Message {} broadcasted in {}ms", message.getId(), duration.toMillis()));
+                duration -> log.debug("Message {} queued for broadcast in {}ms", message.getId(), duration.toMillis()));
     }
 
     /**
      * Sends a message to the specified recipients.
      * If the recipient array is empty, no message is sent (no-op).
+     *
+     * <p>Delivery is asynchronous: the call returns once the message is queued for each recipient.
+     * If a recipient's queue is full, it blocks for up to the configured {@code sendTimeout} (5 seconds by default) per recipient and then disconnects
+     * that stalled peer. Write errors are logged and close the connection rather than being thrown; messages
+     * still queued when a connection is closed are dropped.
      *
      * @param message    the message to send
      * @param recipients one or more client IDs; an empty array means no-op
@@ -120,12 +130,17 @@ public final class RavenServer {
             return;
 
         MeasurementUtil.measure(() -> send(message, Set.of(recipients)),
-                duration -> log.debug("Message {} sent in {}ms", message.getId(), duration.toMillis()));
+                duration -> log.debug("Message {} queued in {}ms", message.getId(), duration.toMillis()));
     }
 
     /**
      * Sends a message to the specified recipients.
      * If the recipient array is empty, no message is sent (no-op).
+     *
+     * <p>Delivery is asynchronous: the call returns once the message is queued for each recipient.
+     * If a recipient's queue is full, it blocks for up to the configured {@code sendTimeout} (5 seconds by default) per recipient and then disconnects
+     * that stalled peer. Write errors are logged and close the connection rather than being thrown; messages
+     * still queued when a connection is closed are dropped.
      *
      * @param message    the message to send
      * @param recipients set with client IDs; an empty set means no-op
