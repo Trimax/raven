@@ -44,10 +44,13 @@ final class ConnectionAcceptor {
     }
 
     /**
-     * Starts the accept loop on an already bound server socket.
+     * Starts the accept loop on an already bound server socket. The loop ends once that socket is closed,
+     * even if the owning server has been started again on a new socket.
+     *
+     * @return the accept thread
      */
-    void start(final ServerSocket serverSocket) {
-        Thread.ofVirtual().name("raven-accept").start(() -> acceptLoop(serverSocket));
+    Thread start(final ServerSocket serverSocket) {
+        return Thread.ofVirtual().name("raven-accept").start(() -> acceptLoop(serverSocket));
     }
 
     /**
@@ -59,11 +62,15 @@ final class ConnectionAcceptor {
     }
 
     private void acceptLoop(final ServerSocket serverSocket) {
-        while (running.getAsBoolean()) {
+        // running alone is not enough: after stop() and start() it is true again for the new socket,
+        // and accept() on this closed socket would fail at once, forever
+        while (running.getAsBoolean() && !serverSocket.isClosed()) {
             final Socket clientSocket;
             try {
                 clientSocket = serverSocket.accept();
             } catch (final IOException ex) {
+                if (serverSocket.isClosed())
+                    break;
                 if (running.getAsBoolean())
                     log.error("Error accepting connection: {}", ex.getMessage());
                 continue;
