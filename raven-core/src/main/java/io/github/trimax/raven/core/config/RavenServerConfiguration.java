@@ -36,4 +36,15 @@ public final class RavenServerConfiguration extends AbstractRavenConfiguration {
     @NonNull
     @Builder.Default
     private final Duration handshakeTimeout = Duration.ofSeconds(5);
+
+    @Override
+    public void validate() {
+        // A zero socket timeout means "wait forever", so a timeout that truncates to 0 ms would disable the protection
+        final var timeout = getHandshakeTimeout();
+        if (timeout.toMillis() < 1)
+            throw new IllegalArgumentException("handshakeTimeout must be at least 1ms, got " + timeout);
+
+        if (timeout.toMillis() > Integer.MAX_VALUE)
+            throw new IllegalArgumentException("handshakeTimeout is too large: " + timeout);
+    }
 }

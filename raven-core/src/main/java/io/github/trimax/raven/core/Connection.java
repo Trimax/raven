@@ -6,6 +6,7 @@ import java.io.ObjectOutputStream;
 import java.net.Socket;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import io.github.trimax.raven.core.filter.MessageInputFilter;
 import lombok.extern.slf4j.Slf4j;
 
 /**

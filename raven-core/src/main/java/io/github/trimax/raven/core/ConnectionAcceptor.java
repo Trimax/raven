@@ -48,7 +48,7 @@ final class ConnectionAcceptor {
 
     /**
      * Closes every socket still in the handshake. Called once the owning server is no longer running,
-     * so a handshake that starts afterwards sees that and closes its own socket.
+     * so a handshake that starts afterward sees that and closes its own socket.
      */
     void closeHandshakes() {
         handshakes.forEach(handshake -> TryUtil.execute(handshake::close));

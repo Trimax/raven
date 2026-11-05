@@ -39,4 +39,9 @@ public final class RavenClientConfiguration extends AbstractRavenConfiguration {
     @NonNull
     @Builder.Default
     private final Duration connectTimeout = Duration.ofSeconds(10);
+
+    @Override
+    public void validate() {
+
+    }
 }

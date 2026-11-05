@@ -11,4 +11,6 @@ import lombok.experimental.SuperBuilder;
 abstract class AbstractRavenConfiguration {
 
     private final int port;
+
+    abstract void validate();
 }
