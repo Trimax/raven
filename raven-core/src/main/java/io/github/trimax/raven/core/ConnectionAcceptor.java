@@ -10,6 +10,7 @@ import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 
 import io.github.trimax.raven.core.util.TryUtil;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -20,28 +21,20 @@ import lombok.extern.slf4j.Slf4j;
  * A connection that does not complete the handshake in time is closed.
  */
 @Slf4j
+@RequiredArgsConstructor
 final class ConnectionAcceptor {
 
-    private final int handshakeTimeoutMs;
+    /** Must already be validated to be at least 1 ms and to fit into an {@code int} of milliseconds. */
+    private final Duration handshakeTimeout;
+
+    /** Whether the owning server is still running. */
     private final BooleanSupplier running;
+
+    /** Invoked on the handshake thread with the raw socket and the established client. */
     private final BiConsumer<Socket, Client> onAccepted;
 
     // Sockets still in the handshake, closed by closeHandshakes() so they do not linger until the handshake timeout
     private final Set<Socket> handshakes = ConcurrentHashMap.newKeySet();
-
-    /**
-     * @param handshakeTimeout maximum time a new connection may take to complete the handshake;
-     *                         must already be validated to be at least 1 ms and fit into an {@code int} of milliseconds
-     * @param running          whether the owning server is still running
-     * @param onAccepted       invoked on the handshake thread with the raw socket and the established client
-     */
-    ConnectionAcceptor(final Duration handshakeTimeout,
-                       final BooleanSupplier running,
-                       final BiConsumer<Socket, Client> onAccepted) {
-        this.handshakeTimeoutMs = (int) handshakeTimeout.toMillis();
-        this.running = running;
-        this.onAccepted = onAccepted;
-    }
 
     /**
      * Starts the accept loop on an already bound server socket. The loop ends once that socket is closed,
@@ -89,7 +82,7 @@ final class ConnectionAcceptor {
             if (!running.getAsBoolean())
                 throw new IOException("server stopped");
 
-            clientSocket.setSoTimeout(handshakeTimeoutMs);
+            clientSocket.setSoTimeout((int) handshakeTimeout.toMillis());
             client = new Client(clientSocket);
             clientSocket.setSoTimeout(0);
         } catch (final IOException ex) {

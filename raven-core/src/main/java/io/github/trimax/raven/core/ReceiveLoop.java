@@ -8,6 +8,7 @@ import io.github.trimax.raven.core.handler.ServerHandler;
 import io.github.trimax.raven.core.interceptor.ServerMessageInterceptor;
 import io.github.trimax.raven.core.util.InterceptorUtil;
 import io.github.trimax.raven.core.validation.MessageValidator;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -15,28 +16,20 @@ import lombok.extern.slf4j.Slf4j;
  * interceptor chain and dispatched to the handler.
  */
 @Slf4j
+@RequiredArgsConstructor
 final class ReceiveLoop {
 
+    /** Receives the validated, intercepted messages. */
     private final ServerHandler handler;
-    private final List<ServerMessageInterceptor> interceptors;
-    private final BooleanSupplier running;
-    private final Consumer<Client> onSessionEnded;
 
-    /**
-     * @param handler        receives the validated, intercepted messages
-     * @param interceptors   interceptor chain applied to every message before the handler
-     * @param running        whether the owning server is still running
-     * @param onSessionEnded invoked once the session ends, after the client has been disconnected
-     */
-    ReceiveLoop(final ServerHandler handler,
-                final List<ServerMessageInterceptor> interceptors,
-                final BooleanSupplier running,
-                final Consumer<Client> onSessionEnded) {
-        this.handler = handler;
-        this.interceptors = interceptors;
-        this.running = running;
-        this.onSessionEnded = onSessionEnded;
-    }
+    /** Interceptor chain applied to every message before the handler. */
+    private final List<ServerMessageInterceptor> interceptors;
+
+    /** Whether the owning server is still running. */
+    private final BooleanSupplier running;
+
+    /** Invoked once the session ends, after the client has been disconnected. */
+    private final Consumer<Client> onSessionEnded;
 
     /**
      * Runs the receive loop for the client on the current thread.
