@@ -4,6 +4,7 @@ import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.Serial;
+import java.net.InetAddress;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -231,6 +232,7 @@ class ServerHierarchyHandlerTest {
         @Bean
         RavenServer ravenServer(final ServerMessageRouter router) {
             final var config = RavenServerConfiguration.builder()
+                    .bindAddress(InetAddress.getLoopbackAddress())
                     .port(0)
                     .handler(router)
                     .build();

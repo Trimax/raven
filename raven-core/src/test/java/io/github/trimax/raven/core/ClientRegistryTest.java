@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
@@ -104,7 +105,7 @@ class ClientRegistryTest {
      * Creates a connected client over loopback. The peer side writes the stream header the client expects.
      */
     private Client newClient() throws IOException {
-        final var server = new ServerSocket(0);
+        final var server = new ServerSocket(0, 0, InetAddress.getLoopbackAddress());
         resources.add(server);
         final var socket = new Socket("localhost", server.getLocalPort());
         resources.add(socket);

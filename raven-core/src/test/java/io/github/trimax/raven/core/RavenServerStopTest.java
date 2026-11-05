@@ -3,6 +3,7 @@ package io.github.trimax.raven.core;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +32,7 @@ class RavenServerStopTest {
         for (int iteration = 0; iteration < ITERATIONS; iteration++) {
             final Map<UUID, AtomicInteger> disconnects = new ConcurrentHashMap<>();
             final var server = new RavenServer(RavenServerConfiguration.builder()
+                    .bindAddress(InetAddress.getLoopbackAddress())
                     .port(0)
                     .handler(new ServerHandler() {
                         @Override

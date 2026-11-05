@@ -1,6 +1,7 @@
 package io.github.trimax.raven.core.config;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.time.Duration;
@@ -33,6 +34,11 @@ class RavenServerConfigurationTest {
     @Test
     void defaultsAreValid() {
         assertDoesNotThrow(() -> configuration(Duration.ofSeconds(5)).validate());
+    }
+
+    @Test
+    void listensOnAllAddressesByDefault() {
+        assertNull(configuration(Duration.ofSeconds(5)).getBindAddress());
     }
 
     @Test

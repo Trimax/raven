@@ -4,9 +4,12 @@ import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.net.InetAddress;
 import java.net.Socket;
+import java.net.SocketException;
 import java.time.Duration;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
@@ -28,6 +31,7 @@ class RavenServerHandshakeTest {
     void silentPeerDoesNotBlockOtherClients() throws Exception {
         final var connects = new CopyOnWriteArrayList<Client>();
         final var server = new RavenServer(RavenServerConfiguration.builder()
+                .bindAddress(InetAddress.getLoopbackAddress())
                 .port(0)
                 .handler(new ServerHandler() {
                     @Override
@@ -81,6 +85,7 @@ class RavenServerHandshakeTest {
     @Test
     void silentPeerIsDroppedAfterHandshakeTimeout() throws Exception {
         final var server = new RavenServer(RavenServerConfiguration.builder()
+                .bindAddress(InetAddress.getLoopbackAddress())
                 .port(0)
                 .handshakeTimeout(Duration.ofMillis(500))
                 .handler(new ServerHandler() {
@@ -128,7 +133,7 @@ class RavenServerHandshakeTest {
                 // the server may already have closed the socket
             }
 
-            assertEquals(-1, in.read());
+            assertClosedByServer(in);
             assertEquals(0, connects.get());
         } finally {
             server.stop();
@@ -153,8 +158,22 @@ class RavenServerHandshakeTest {
         }
     }
 
-    private static RavenServer startServer(final AtomicInteger connects, final Duration handshakeTimeout) {
+    /**
+     * Asserts that the server closed the connection. When the server closes a socket whose incoming data it has
+     * not read yet (here: our stream header), the OS sends a reset instead of a FIN, so the read either reports
+     * end-of-stream or fails with "Connection reset". A read timeout still fails the test: the socket stayed open.
+     */
+    private static void assertClosedByServer(final InputStream in) throws IOException {
+        try {
+            assertEquals(-1, in.read());
+        } catch (final SocketException ex) {
+            assertTrue(String.valueOf(ex.getMessage()).contains("reset"), "unexpected socket error: " + ex);
+        }
+    }
+
+        private static RavenServer startServer(final AtomicInteger connects, final Duration handshakeTimeout) {
         final var server = new RavenServer(RavenServerConfiguration.builder()
+                .bindAddress(InetAddress.getLoopbackAddress())
                 .port(0)
                 .handshakeTimeout(handshakeTimeout)
                 .handler(new ServerHandler() {

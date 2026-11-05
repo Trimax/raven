@@ -4,6 +4,7 @@ import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.time.Duration;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -45,7 +46,7 @@ class ConnectionAcceptorTest {
         final var acceptor = new ConnectionAcceptor(configuration, () -> true, (_, _) -> {
         });
 
-        final var socket = new ServerSocket(0);
+        final var socket = new ServerSocket(0, 0, InetAddress.getLoopbackAddress());
         final var acceptThread = acceptor.start(socket);
         socket.close();
 
@@ -57,6 +58,7 @@ class ConnectionAcceptorTest {
     void restartedServerAcceptsClients() {
         final var connected = new CopyOnWriteArrayList<Client>();
         final var server = new RavenServer(RavenServerConfiguration.builder()
+                .bindAddress(InetAddress.getLoopbackAddress())
                 .port(0)
                 .handler(new ServerHandler() {
                     @Override
