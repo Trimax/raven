@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -100,6 +101,22 @@ class ConnectionTest {
             assertNull(connection.receive());
             assertFalse(connection.isConnected());
             assertTrue(socket.isClosed(), "socket must be closed once the peer has closed the connection");
+        }
+    }
+
+    @Test
+    void peerCloseStopsWriterThread() throws Exception {
+        try (final var serverSocket = new ServerSocket(0);
+             final var socket = new Socket("localhost", serverSocket.getLocalPort())) {
+            final var peer = serverSocket.accept();
+            new ObjectOutputStream(peer.getOutputStream()).flush();
+            final var connection = new Connection(socket);
+
+            peer.close();
+
+            assertNull(connection.receive());
+            assertTrue(connection.writer.join(Duration.ofSeconds(5)), "writer thread must terminate once the peer has closed");
+            assertTrue(socket.isClosed());
         }
     }
 

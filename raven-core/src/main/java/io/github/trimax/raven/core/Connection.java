@@ -27,7 +27,8 @@ final class Connection {
     private final ObjectInputStream inputStream;
     private final ObjectOutputStream outputStream;
     private final BlockingQueue<Message> outbox = new ArrayBlockingQueue<>(SEND_QUEUE_CAPACITY);
-    private final Thread writer;
+    /** Package-private for tests only: lets them verify the writer terminates. */
+    final Thread writer;
 
     Connection(final Socket socket) throws IOException {
         this.socket = socket;
