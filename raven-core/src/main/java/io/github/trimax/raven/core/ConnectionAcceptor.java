@@ -1,0 +1,100 @@
+package io.github.trimax.raven.core;
+
+import java.io.IOException;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.time.Duration;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
+import java.util.function.BooleanSupplier;
+
+import io.github.trimax.raven.core.util.TryUtil;
+import lombok.extern.slf4j.Slf4j;
+
+/**
+ * Accepts TCP connections and performs the handshake for each one on its own virtual thread,
+ * so a slow or silent peer never delays the accept loop or other peers.
+ *
+ * <p>The handshake reads the peer's stream header and is bounded by the handshake timeout.
+ * A connection that does not complete the handshake in time is closed.
+ */
+@Slf4j
+final class ConnectionAcceptor {
+
+    private final int handshakeTimeoutMs;
+    private final BooleanSupplier running;
+    private final BiConsumer<Socket, Client> onAccepted;
+
+    // Sockets still in the handshake, closed by closeHandshakes() so they do not linger until the handshake timeout
+    private final Set<Socket> handshakes = ConcurrentHashMap.newKeySet();
+
+    /**
+     * @param handshakeTimeout maximum time a new connection may take to complete the handshake;
+     *                         must already be validated to be at least 1 ms and fit into an {@code int} of milliseconds
+     * @param running          whether the owning server is still running
+     * @param onAccepted       invoked on the handshake thread with the raw socket and the established client
+     */
+    ConnectionAcceptor(final Duration handshakeTimeout,
+                       final BooleanSupplier running,
+                       final BiConsumer<Socket, Client> onAccepted) {
+        this.handshakeTimeoutMs = (int) handshakeTimeout.toMillis();
+        this.running = running;
+        this.onAccepted = onAccepted;
+    }
+
+    /**
+     * Starts the accept loop on an already bound server socket.
+     */
+    void start(final ServerSocket serverSocket) {
+        Thread.ofVirtual().name("raven-accept").start(() -> acceptLoop(serverSocket));
+    }
+
+    /**
+     * Closes every socket still in the handshake. Called once the owning server is no longer running,
+     * so a handshake that starts afterwards sees that and closes its own socket.
+     */
+    void closeHandshakes() {
+        handshakes.forEach(handshake -> TryUtil.execute(handshake::close));
+    }
+
+    private void acceptLoop(final ServerSocket serverSocket) {
+        while (running.getAsBoolean()) {
+            final Socket clientSocket;
+            try {
+                clientSocket = serverSocket.accept();
+            } catch (final IOException ex) {
+                if (running.getAsBoolean())
+                    log.error("Error accepting connection: {}", ex.getMessage());
+                continue;
+            }
+
+            // The handshake blocks on the peer's stream header, so it must not run on the accept thread
+            Thread.ofVirtual().name("raven-handshake").start(() -> handshake(clientSocket));
+        }
+    }
+
+    private void handshake(final Socket clientSocket) {
+        final Client client;
+        handshakes.add(clientSocket);
+        try {
+            // closeHandshakes() runs after the server is marked stopped, so this re-check covers a late add
+            if (!running.getAsBoolean())
+                throw new IOException("server stopped");
+
+            clientSocket.setSoTimeout(handshakeTimeoutMs);
+            client = new Client(clientSocket);
+            clientSocket.setSoTimeout(0);
+        } catch (final IOException ex) {
+            if (running.getAsBoolean())
+                log.error("Error setting up connection from {}: {}",
+                        clientSocket.getRemoteSocketAddress(), ex.getMessage());
+            TryUtil.execute(clientSocket::close);
+            return;
+        } finally {
+            handshakes.remove(clientSocket);
+        }
+
+        onAccepted.accept(clientSocket, client);
+    }
+}
