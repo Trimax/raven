@@ -23,7 +23,7 @@ import lombok.extern.slf4j.Slf4j;
  *
  * <p>This class is the public facade. Responsibilities are delegated to:
  * <ul>
- *   <li>{@link ClientRegistry} — the set of connected clients and the exactly-once disconnect rule;</li>
+ *   <li>{@link SessionManager} — the connected clients and the exactly-once disconnect rule;</li>
  *   <li>{@link ConnectionAcceptor} — the accept loop and the bounded handshake of each new connection;</li>
  *   <li>{@link ReceiveLoop} — reading messages per client until the session ends.</li>
  * </ul>
@@ -38,8 +38,8 @@ public final class RavenServer {
     private final RavenServerConfiguration configuration;
 
     private final ConnectionAcceptor acceptor;
+    private final SessionManager sessions;
 
-    private final ClientRegistry clients = new ClientRegistry();
     private final AtomicReference<ServerSocket> serverSocket = new AtomicReference<>();
 
     public RavenServer(@NonNull final RavenServerConfiguration configuration) {
@@ -48,6 +48,7 @@ public final class RavenServer {
         this.configuration = configuration;
         this.acceptor = new ConnectionAcceptor(this.configuration,
                 this::isRunning, this::onConnectionAccepted);
+        this.sessions = new SessionManager(this.configuration.getHandler(), this::isRunning);
     }
 
     /**
@@ -81,12 +82,7 @@ public final class RavenServer {
         log.info("RavenServer stopping...");
 
         acceptor.closeHandshakes();
-
-        // Clients are removed from the registry before they are disconnected, so exactly one of stop() and
-        // the client's own receive loop reports its disconnect. Clients still in onConnect are skipped and
-        // reported by their registering thread once onConnect returns
-        for (final var client : clients.removeAll())
-            disconnectClient(client);
+        sessions.closeAll();
 
         TryUtil.execute(socket::close);
 
@@ -94,30 +90,22 @@ public final class RavenServer {
     }
 
     /**
-     * Broadcasts a message to all connected clients.
-     *
-     * <p>Delivery is asynchronous: the call returns once the message is queued for each recipient.
-     * If a recipient's queue is full, it blocks for up to the configured {@code sendTimeout} (5 seconds by default) per recipient and then disconnects
-     * that stalled peer. Write errors are logged and close the connection rather than being thrown; messages
-     * still queued when a connection is closed are dropped.
+     * Broadcasts a message to all connected clients. Delivery is asynchronous, as described at
+     * {@link #send(Message, Set)}.
      *
      * @param message the message to broadcast
      */
     public void broadcast(final Message message) {
         MessageValidator.validateOrThrow(message);
 
-        MeasurementUtil.measure(() -> send(message, clients.ids()),
+        MeasurementUtil.measure(() -> send(message, sessions.ids()),
                 duration -> log.debug("Message {} queued for broadcast in {}ms", message.getId(), duration.toMillis()));
     }
 
     /**
      * Sends a message to the specified recipients.
-     * If the recipient array is empty, no message is sent (no-op).
-     *
-     * <p>Delivery is asynchronous: the call returns once the message is queued for each recipient.
-     * If a recipient's queue is full, it blocks for up to the configured {@code sendTimeout} (5 seconds by default) per recipient and then disconnects
-     * that stalled peer. Write errors are logged and close the connection rather than being thrown; messages
-     * still queued when a connection is closed are dropped.
+     * If the recipient array is empty, no message is sent (no-op). Delivery is asynchronous, as described at
+     * {@link #send(Message, Set)}.
      *
      * @param message    the message to send
      * @param recipients one or more client IDs; an empty array means no-op
@@ -132,7 +120,7 @@ public final class RavenServer {
 
     /**
      * Sends a message to the specified recipients.
-     * If the recipient array is empty, no message is sent (no-op).
+     * If the recipient set is empty, no message is sent (no-op).
      *
      * <p>Delivery is asynchronous: the call returns once the message is queued for each recipient.
      * If a recipient's queue is full, it blocks for up to the configured {@code sendTimeout} (5 seconds by default) per recipient and then disconnects
@@ -146,7 +134,7 @@ public final class RavenServer {
         MessageValidator.validateOrThrow(message);
 
         for (final var recipientId : recipients) {
-            final var client = clients.get(recipientId);
+            final var client = sessions.get(recipientId);
             if (client == null) {
                 log.warn("Cannot send message: client {} not found", recipientId);
                 continue;
@@ -160,7 +148,7 @@ public final class RavenServer {
      * Returns the set of currently connected client IDs.
      */
     public Set<UUID> getClients() {
-        return clients.ids();
+        return sessions.ids();
     }
 
     /**
@@ -181,32 +169,17 @@ public final class RavenServer {
     }
 
     /**
-     * Called on the handshake thread once a connection is established. Registers the client, notifies the
-     * handler and starts the receive loop. Any failure of the handler's {@code onConnect} releases the
-     * connection, so the accept path keeps running.
+     * Called on the handshake thread once a connection is established. Opens the client's session and starts
+     * its receive loop.
      */
     private void onConnectionAccepted(final Socket socket, final Client client) {
-        // Registered before the running check, so stop() either sees this client or this thread sees the stop
-        clients.addConnecting(client);
-        try {
-            if (!register(socket, client))
-                return;
-        } finally {
-            clients.markConnected(client.getId());
-        }
-
-        // stop() skipped this client while onConnect ran, so its single disconnect is reported here and the
-        // receive loop, which would exit at once, is not started
-        if (!isRunning()) {
-            if (clients.remove(client.getId()) != null)
-                disconnectClient(client);
+        if (!sessions.open(socket, client))
             return;
-        }
 
         Thread.ofVirtual()
                 .name("raven-client-" + client.getId())
                 .start(() -> ReceiveLoop.run(client.connection(), this::isRunning,
-                        message -> deliver(client, message), () -> onSessionEnded(client)));
+                        message -> deliver(client, message), () -> sessions.close(client)));
     }
 
     /**
@@ -227,47 +200,5 @@ public final class RavenServer {
         // A failing handler ends this session; the receive loop then releases the connection
         return HandlingUtil.callHandler(() -> configuration.getHandler().onMessage(client, message),
                 () -> "for message from " + client.getId());
-    }
-
-    /**
-     * Announces the client to the handler.
-     *
-     * @return {@code false} if the client was dropped without a disconnect being reported: its handshake
-     *         completed after {@link #stop()}, or the handler's {@code onConnect} failed
-     */
-    private boolean register(final Socket socket, final Client client) {
-        // A client whose handshake completed after stop() is dropped without ever being announced
-        if (!isRunning()) {
-            clients.remove(client.getId());
-            client.disconnect();
-            return false;
-        }
-
-        log.info("Client connected: {} ({})", client.getId(), socket.getRemoteSocketAddress());
-        if (!HandlingUtil.callHandler(() -> configuration.getHandler().onConnect(client),
-                () -> "on connect for " + socket.getRemoteSocketAddress())) {
-            // The receive loop never starts, so the connection must be released here
-            clients.remove(client.getId());
-            client.disconnect();
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Called once a client session has ended. Removal from the registry decides who reports the disconnect,
-     * so {@code onDisconnect} runs once per client.
-     */
-    private void onSessionEnded(final Client client) {
-        if (clients.remove(client.getId()) != null)
-            disconnectClient(client);
-    }
-
-    private void disconnectClient(final Client client) {
-        client.disconnect();
-        configuration.getHandler().onDisconnect(client);
-
-        log.info("Client disconnected: {}", client.getId());
     }
 }

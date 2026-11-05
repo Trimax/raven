@@ -10,8 +10,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Thread-safe registry of the clients currently connected to a {@link RavenServer}.
  *
- * <p>{@link #remove(UUID)} hands a client out only to the first caller. The server relies on this to
- * report each client's disconnect exactly once, whether it is triggered by the client's own receive
+ * <p>{@link #remove(UUID)} hands a client out only to the first caller. {@link SessionManager} relies on this
+ * to report each client's disconnect exactly once, whether it is triggered by the client's own receive
  * loop or by {@link RavenServer#stop()}.
  *
  * <p>A client registered with {@link #addConnecting(Client)} stays out of {@link #removeAll()} until
