@@ -32,7 +32,8 @@ public final class DecimalMaxValidator implements ConstraintValidator {
         final double doubleValue = ((Number) value).doubleValue();
         final double maxValue = decimalMax.value();
 
-        if (doubleValue > maxValue)
+        // NaN compares false with every bound, so it would otherwise pass
+        if (Double.isNaN(doubleValue) || doubleValue > maxValue)
             return new Violation(fieldName, DecimalMax.class,
                 "field '" + fieldName + "' must be <= " + maxValue + ", got: " + doubleValue);
 

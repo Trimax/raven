@@ -10,6 +10,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -103,6 +104,36 @@ class SessionManagerTest {
                 "disconnect " + client.getId()), handler.events);
         assertFalse(client.isConnected());
         assertTrue(sessions.ids().isEmpty());
+    }
+
+    @Test
+    void failingOnDisconnectDoesNotStopCloseAll() throws Exception {
+        final var reported = new CopyOnWriteArrayList<UUID>();
+        final var failing = new SessionManager(new ServerHandler() {
+            @Override
+            public void onConnect(final Client client) {
+            }
+
+            @Override
+            public void onDisconnect(final Client client) {
+                reported.add(client.getId());
+                throw new IllegalStateException("handler failure");
+            }
+
+            @Override
+            public void onMessage(final Client sender, final Message message) {
+            }
+        }, running::get);
+        final var accepted = List.of(newClient(), newClient(), newClient());
+        for (final var each : accepted)
+            assertTrue(failing.open(each.socket(), each.client()));
+
+        running.set(false);
+        assertDoesNotThrow(failing::closeAll);
+
+        assertEquals(3, reported.size());
+        for (final var each : accepted)
+            assertFalse(each.client().isConnected());
     }
 
     @Test

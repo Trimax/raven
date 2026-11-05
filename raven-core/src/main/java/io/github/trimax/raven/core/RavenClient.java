@@ -29,7 +29,6 @@ public final class RavenClient {
      * Current connection. Volatile because it is read without the monitor by {@link #send(Message)}.
      */
     private volatile Connection connection;
-    private Thread receiverThread;
 
     /**
      * The connection attempt in progress, aborted by {@link #disconnect()}. Guarded by the monitor.
@@ -82,7 +81,7 @@ public final class RavenClient {
 
             connection = newConnection;
             log.info("RavenClient connected to {}:{}", configuration.getHost(), configuration.getPort());
-            if (!HandlingUtil.callHandler(configuration.getHandler()::onConnect, () -> "on connect")) {
+            if (!HandlingUtil.callHandler(configuration.getHandler()::onConnect, () -> "on connect, closing the connection")) {
                 // Without this the client would look connected while no receiver is running
                 final var failed = connection;
                 connection = null;
@@ -90,7 +89,7 @@ public final class RavenClient {
                 return;
             }
 
-            receiverThread = Thread.ofVirtual().name("raven-receiver").start(() ->
+            Thread.ofVirtual().name("raven-receiver").start(() ->
                     ReceiveLoop.run(newConnection, () -> true, this::deliver, () -> onSessionEnded(newConnection)));
         }
     }
@@ -131,16 +130,13 @@ public final class RavenClient {
         if (connection == null)
             return;
 
+        // Closing the socket ends the receive loop; interrupting its thread is not needed, and when the loop itself
+        // ends the session it would leave the interrupt flag set inside onDisconnect
         connection.disconnect();
         connection = null;
 
-        if (receiverThread != null) {
-            receiverThread.interrupt();
-            receiverThread = null;
-        }
-
         log.info("RavenClient disconnected");
-        configuration.getHandler().onDisconnect();
+        HandlingUtil.callHandler(configuration.getHandler()::onDisconnect, () -> "on disconnect");
     }
 
     /**
@@ -185,7 +181,8 @@ public final class RavenClient {
             return true;
 
         // A failing handler ends this session; the receive loop then releases the connection
-        return HandlingUtil.callHandler(() -> configuration.getHandler().onMessage(message), () -> "for received message");
+        return HandlingUtil.callHandler(() -> configuration.getHandler().onMessage(message),
+                () -> "for received message, closing the connection");
     }
 
     /**

@@ -102,7 +102,7 @@ final class SessionManager {
 
         log.info("Client connected: {} ({})", client.getId(), socket.getRemoteSocketAddress());
         if (!HandlingUtil.callHandler(() -> handler.onConnect(client),
-                () -> "on connect for " + socket.getRemoteSocketAddress())) {
+                () -> "on connect for " + socket.getRemoteSocketAddress() + ", closing the connection")) {
             // The receive loop never starts, so the connection must be released here
             clients.remove(client.getId());
             client.disconnect();
@@ -114,7 +114,8 @@ final class SessionManager {
 
     private void disconnectClient(final Client client) {
         client.disconnect();
-        handler.onDisconnect(client);
+        // A failing handler must not keep closeAll() from disconnecting and reporting the remaining clients
+        HandlingUtil.callHandler(() -> handler.onDisconnect(client), () -> "on disconnect for " + client.getId());
 
         log.info("Client disconnected: {}", client.getId());
     }

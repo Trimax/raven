@@ -81,10 +81,11 @@ public final class RavenServer {
 
         log.info("RavenServer stopping...");
 
+        // Release the port first, so nothing that follows can leave it accepting connections
+        TryUtil.execute(socket::close);
+
         acceptor.closeHandshakes();
         sessions.closeAll();
-
-        TryUtil.execute(socket::close);
 
         log.info("RavenServer stopped");
     }
@@ -199,6 +200,6 @@ public final class RavenServer {
 
         // A failing handler ends this session; the receive loop then releases the connection
         return HandlingUtil.callHandler(() -> configuration.getHandler().onMessage(client, message),
-                () -> "for message from " + client.getId());
+                () -> "for message from " + client.getId() + ", closing its connection");
     }
 }

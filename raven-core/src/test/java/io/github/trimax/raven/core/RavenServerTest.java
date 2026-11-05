@@ -12,6 +12,7 @@ import java.net.NetworkInterface;
 import java.net.Socket;
 import java.net.SocketException;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
@@ -51,6 +52,25 @@ class RavenServerTest {
         } finally {
             server.stop();
         }
+    }
+
+    @Test
+    void stopReleasesThePortAndDisconnectsEveryoneEvenIfOnDisconnectThrows() {
+        final var server = createServer(new NoOpServerHandler() {
+            @Override
+            public void onDisconnect(final Client client) {
+                throw new IllegalStateException("handler failure");
+            }
+        });
+        server.start();
+        final var port = server.getPort();
+        final var clients = List.of(connectedClient(port), connectedClient(port));
+        await().atMost(2, TimeUnit.SECONDS).until(() -> server.getClients().size() == 2);
+
+        server.stop();
+
+        await().atMost(5, TimeUnit.SECONDS).until(() -> clients.stream().noneMatch(RavenClient::isConnected));
+        assertThrows(IOException.class, () -> new Socket(InetAddress.getLoopbackAddress(), port).close());
     }
 
     @Test
@@ -267,6 +287,24 @@ class RavenServerTest {
         client1.disconnect();
         client2.disconnect();
         server.stop();
+    }
+
+    private static RavenClient connectedClient(final int port) {
+        final var client = createClient("localhost", port, new ClientHandler() {
+            @Override
+            public void onConnect() {
+            }
+
+            @Override
+            public void onDisconnect() {
+            }
+
+            @Override
+            public void onMessage(final Message message) {
+            }
+        });
+        client.connect();
+        return client;
     }
 
     private static RavenServer createServer(final ServerHandler handler) {

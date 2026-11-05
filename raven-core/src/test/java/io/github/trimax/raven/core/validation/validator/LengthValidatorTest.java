@@ -14,6 +14,10 @@ class LengthValidatorTest {
     @SuppressWarnings("unused")
     private static String lengthField;
 
+    @Length(min = 3)
+    @SuppressWarnings("unused")
+    private static String minOnlyField;
+
     @Test
     void validLengthWithinRange() {
         final var result = validator.validate("name", "hello", getAnnotation());
@@ -45,6 +49,16 @@ class LengthValidatorTest {
         final var result = validator.validate("name", "abcdefghijk", getAnnotation());
         assertNotNull(result);
         assertEquals("Length", result.constraint());
+    }
+
+    @Test
+    void defaultMaxAcceptsLongStrings() throws NoSuchFieldException {
+        // The default max is Long.MAX_VALUE; it used to be cast to int (-1) and reject every string
+        final var minOnly = LengthValidatorTest.class.getDeclaredField("minOnlyField").getAnnotation(Length.class);
+
+        assertNull(validator.validate("name", "abc", minOnly));
+        assertNull(validator.validate("name", "x".repeat(10_000), minOnly));
+        assertNotNull(validator.validate("name", "ab", minOnly));
     }
 
     @Test

@@ -32,7 +32,8 @@ public final class DecimalMinValidator implements ConstraintValidator {
         final double doubleValue = ((Number) value).doubleValue();
         final double minValue = decimalMin.value();
 
-        if (doubleValue < minValue)
+        // NaN compares false with every bound, so it would otherwise pass
+        if (Double.isNaN(doubleValue) || doubleValue < minValue)
             return new Violation(fieldName, DecimalMin.class,
                 "field '" + fieldName + "' must be >= " + minValue + ", got: " + doubleValue);
 

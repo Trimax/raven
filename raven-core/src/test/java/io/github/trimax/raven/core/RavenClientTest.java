@@ -171,6 +171,41 @@ class RavenClientTest {
     }
 
     @Test
+    void onDisconnectIsNotCalledWithTheInterruptFlagSet() throws InterruptedException {
+        final var interrupted = new AtomicBoolean(true);
+        final var sleptNormally = new AtomicBoolean(false);
+        final var disconnected = new CountDownLatch(1);
+        final var client = createClient("localhost", port, new ClientHandler() {
+            @Override
+            public void onConnect() {}
+
+            @Override
+            public void onDisconnect() {
+                // Runs on the receive thread when the server ends the session; a reconnect backoff must work here
+                interrupted.set(Thread.currentThread().isInterrupted());
+                try {
+                    Thread.sleep(10);
+                    sleptNormally.set(true);
+                } catch (final InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+                disconnected.countDown();
+            }
+
+            @Override
+            public void onMessage(final Message message) {}
+        });
+
+        client.connect();
+        await().atMost(2, TimeUnit.SECONDS).until(client::isConnected);
+        server.stop();
+
+        assertTrue(disconnected.await(5, TimeUnit.SECONDS));
+        assertFalse(interrupted.get(), "onDisconnect must not see the interrupt flag");
+        assertTrue(sleptNormally.get());
+    }
+
+    @Test
     void reconnectAfterDisconnect() {
         final var client = createClient("localhost", port, new NoOpClientHandler());
 
