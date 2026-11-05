@@ -3,19 +3,14 @@ package io.github.trimax.raven.core;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.time.Duration;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.util.ArrayUtil;
-import io.github.trimax.raven.core.util.InterceptorUtil;
 import io.github.trimax.raven.core.util.MeasurementUtil;
-import io.github.trimax.raven.core.util.TryUtil;
 import io.github.trimax.raven.core.validation.MessageValidator;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -24,7 +19,14 @@ import lombok.extern.slf4j.Slf4j;
  * Pure TCP server. Accepts client connections, manages their lifecycle,
  * and delegates events to a {@link io.github.trimax.raven.core.handler.ServerHandler}.
  *
- * <p>Uses virtual threads for the acceptance loop and per-client receiver loops.
+ * <p>This class is the public facade. Responsibilities are delegated to:
+ * <ul>
+ *   <li>{@link ClientRegistry} — the set of connected clients and the exactly-once disconnect rule;</li>
+ *   <li>{@link ConnectionAcceptor} — the accept loop and the bounded handshake of each new connection;</li>
+ *   <li>{@link ReceiveLoop} — reading, validating, intercepting and dispatching messages per client.</li>
+ * </ul>
+ *
+ * <p>Uses virtual threads for the acceptance loop, the handshakes and per-client receiver loops.
  * This class has no Spring dependencies — it is a plain Java transport layer.
  */
 @Slf4j
@@ -33,17 +35,17 @@ public final class RavenServer {
     @NonNull
     private final RavenServerConfiguration configuration;
 
-    private final Map<UUID, Client> clients = new ConcurrentHashMap<>();
+    private final ClientRegistry clients = new ClientRegistry();
+    private final ConnectionAcceptor acceptor;
+    private final ReceiveLoop receiveLoop;
     private final AtomicReference<ServerSocket> serverSocket = new AtomicReference<>();
-
-    // Sockets still in the handshake, closed by stop() so they do not linger until the handshake timeout
-    private final Set<Socket> handshakes = ConcurrentHashMap.newKeySet();
-
-    // Registered clients whose onConnect has not returned yet; stop() leaves their disconnect to the registering thread
-    private final Set<UUID> connecting = ConcurrentHashMap.newKeySet();
 
     public RavenServer(final RavenServerConfiguration configuration) {
         this.configuration = validate(configuration);
+        this.acceptor = new ConnectionAcceptor(this.configuration.getHandshakeTimeout(),
+                this::isRunning, this::onConnectionAccepted);
+        this.receiveLoop = new ReceiveLoop(this.configuration.getHandler(), this.configuration.getInterceptors(),
+                this::isRunning, this::onSessionEnded);
     }
 
     /**
@@ -58,7 +60,7 @@ public final class RavenServer {
             }
 
             log.info("RavenServer started on port {}", socket.getLocalPort());
-            Thread.ofVirtual().name("raven-accept").start(this::acceptLoop);
+            acceptor.start(socket);
         } catch (final IOException ex) {
             log.error("Failed to start RavenServer on port {}: {}", configuration.getPort(), ex.getMessage());
         }
@@ -75,18 +77,13 @@ public final class RavenServer {
 
         log.info("RavenServer stopping...");
 
-        handshakes.forEach(handshake -> TryUtil.execute(handshake::close));
+        acceptor.closeHandshakes();
 
-        // Each client is removed from the registry before it is disconnected, so exactly one of stop() and
-        // the client's own receive loop reports its disconnect
-        for (final var id : clients.keySet()) {
-            if (connecting.contains(id))
-                continue;
-
-            final var client = clients.remove(id);
-            if (client != null)
-                disconnectClient(client);
-        }
+        // Clients are removed from the registry before they are disconnected, so exactly one of stop() and
+        // the client's own receive loop reports its disconnect. Clients still in onConnect are skipped and
+        // reported by their registering thread once onConnect returns
+        for (final var client : clients.removeAll())
+            disconnectClient(client);
 
         try {
             socket.close();
@@ -105,7 +102,7 @@ public final class RavenServer {
     public void broadcast(final Message message) {
         MessageValidator.validateOrThrow(message);
 
-        MeasurementUtil.measure(() -> send(message, clients.keySet()),
+        MeasurementUtil.measure(() -> send(message, clients.ids()),
                 duration -> log.debug("Message {} broadcasted in {}ms", message.getId(), duration.toMillis()));
     }
 
@@ -149,7 +146,7 @@ public final class RavenServer {
      * Returns the set of currently connected client IDs.
      */
     public Set<UUID> getClients() {
-        return Set.copyOf(clients.keySet());
+        return clients.ids();
     }
 
     /**
@@ -169,119 +166,69 @@ public final class RavenServer {
         return serverSocket.get() != null;
     }
 
-    private void acceptLoop() {
-        while (isRunning()) {
-            final Socket clientSocket;
-            try {
-                final var socket = serverSocket.get();
-                if (socket == null)
-                    break;
-
-                clientSocket = socket.accept();
-            } catch (final IOException ex) {
-                if (isRunning())
-                    log.error("Error accepting connection: {}", ex.getMessage());
-                continue;
-            }
-
-            // The handshake blocks on the peer's stream header, so it must not run on the accept thread
-            Thread.ofVirtual().name("raven-handshake").start(() -> acceptConnection(clientSocket));
+    /**
+     * Called on the handshake thread once a connection is established. Registers the client, notifies the
+     * handler and starts the receive loop. Any failure of the handler's {@code onConnect} releases the
+     * connection, so the accept path keeps running.
+     */
+    private void onConnectionAccepted(final Socket socket, final Client client) {
+        // Registered before the running check, so stop() either sees this client or this thread sees the stop
+        clients.addConnecting(client);
+        try {
+            if (!register(socket, client))
+                return;
+        } finally {
+            clients.markConnected(client.getId());
         }
+
+        // stop() skipped this client while onConnect ran, so its single disconnect is reported here and the
+        // receive loop, which would exit at once, is not started
+        if (!isRunning()) {
+            if (clients.remove(client.getId()) != null)
+                disconnectClient(client);
+            return;
+        }
+
+        Thread.ofVirtual()
+                .name("raven-client-" + client.getId())
+                .start(() -> receiveLoop.run(client));
     }
 
     /**
-     * Sets up one accepted connection. Any failure, including an unchecked exception thrown by the
-     * handler's {@code onConnect}, is contained here so that the accept loop keeps running.
+     * Announces the client to the handler.
+     *
+     * @return {@code false} if the client was dropped without a disconnect being reported: its handshake
+     *         completed after {@link #stop()}, or the handler's {@code onConnect} failed
      */
-    private void acceptConnection(final Socket clientSocket) {
-        final Client client;
-        handshakes.add(clientSocket);
-        try {
-            // stop() closes tracked sockets after it marks the server stopped, so this re-check covers a late add
-            if (!isRunning())
-                throw new IOException("server stopped");
-
-            clientSocket.setSoTimeout(toSocketTimeoutMillis(configuration.getHandshakeTimeout()));
-            client = new Client(clientSocket);
-            clientSocket.setSoTimeout(0);
-        } catch (final IOException ex) {
-            if (isRunning())
-                log.error("Error setting up connection from {}: {}", clientSocket.getRemoteSocketAddress(), ex.getMessage());
-            TryUtil.execute(clientSocket::close);
-            return;
-        } finally {
-            handshakes.remove(clientSocket);
-        }
-
-        connecting.add(client.getId());
-        try {
-            registerClient(client, clientSocket);
-        } catch (final RuntimeException ex) {
-            log.error("Handler failed on connect for {}: {}", clientSocket.getRemoteSocketAddress(), ex.getMessage(), ex);
-            clients.remove(client.getId());
-            client.disconnect();
-        } finally {
-            connecting.remove(client.getId());
-        }
-
-        // stop() skipped this client while onConnect ran, so its disconnect is reported here
-        if (!isRunning() && clients.remove(client.getId()) != null)
-            disconnectClient(client);
-    }
-
-    private void registerClient(final Client client, final Socket clientSocket) {
-        clients.put(client.getId(), client);
-
+    private boolean register(final Socket socket, final Client client) {
         // A client whose handshake completed after stop() is dropped without ever being announced
         if (!isRunning()) {
             clients.remove(client.getId());
             client.disconnect();
-            return;
+            return false;
         }
 
-        log.info("Client connected: {} ({})", client.getId(), clientSocket.getRemoteSocketAddress());
-        configuration.getHandler().onConnect(client);
+        log.info("Client connected: {} ({})", client.getId(), socket.getRemoteSocketAddress());
+        try {
+            configuration.getHandler().onConnect(client);
+        } catch (final RuntimeException ex) {
+            // The receive loop never starts, so the connection must be released here
+            log.error("Handler failed on connect for {}: {}", socket.getRemoteSocketAddress(), ex.getMessage(), ex);
+            clients.remove(client.getId());
+            client.disconnect();
+            return false;
+        }
 
-        // The receive loop would exit at once if stop() ran during onConnect; acceptConnection() reports that disconnect
-        if (!isRunning())
-            return;
-
-        Thread.ofVirtual()
-                .name("raven-client-" + client.getId())
-                .start(() -> receiveLoop(client));
+        return true;
     }
 
-    private void receiveLoop(final Client client) {
-        try {
-            while (client.isConnected() && isRunning()) {
-                final var message = client.receive();
-                if (message == null)
-                    break;
-
-                final var violations = MessageValidator.validate(message);
-                if (!violations.isEmpty()) {
-                    log.warn("Received invalid {} from {}: {}", message.getClass().getSimpleName(), client.getId(), violations);
-                    continue;
-                }
-
-                if (!InterceptorUtil.shouldProceed(configuration.getInterceptors(), client, message))
-                    continue;
-
-                try {
-                    configuration.getHandler().onMessage(client, message);
-                } catch (final RuntimeException ex) {
-                    // A failing handler ends this session; finally below releases the connection
-                    log.error("Handler failed for message from {}, closing connection: {}", client.getId(), ex.getMessage(), ex);
-                    return;
-                }
-            }
-        } finally {
-            // Runs on normal exit and on errors, so the socket is never left open
-            client.disconnect();
-            // Removal from the registry decides who reports the disconnect, so onDisconnect runs once per client
-            if (clients.remove(client.getId()) != null)
-                disconnectClient(client);
-        }
+    /**
+     * Called once a client session has ended. Removal from the registry decides who reports the disconnect,
+     * so {@code onDisconnect} runs once per client.
+     */
+    private void onSessionEnded(final Client client) {
+        if (clients.remove(client.getId()) != null)
+            disconnectClient(client);
     }
 
     private void disconnectClient(final Client client) {
@@ -302,9 +249,5 @@ public final class RavenServer {
             throw new IllegalArgumentException("handshakeTimeout is too large: " + timeout);
 
         return configuration;
-    }
-
-    private static int toSocketTimeoutMillis(final Duration timeout) {
-        return (int) timeout.toMillis();
     }
 }
