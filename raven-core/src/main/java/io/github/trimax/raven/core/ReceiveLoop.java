@@ -6,6 +6,7 @@ import java.util.function.Consumer;
 
 import io.github.trimax.raven.core.handler.ServerHandler;
 import io.github.trimax.raven.core.interceptor.ServerMessageInterceptor;
+import io.github.trimax.raven.core.util.HandlingUtil;
 import io.github.trimax.raven.core.util.InterceptorUtil;
 import io.github.trimax.raven.core.validation.MessageValidator;
 import lombok.RequiredArgsConstructor;
@@ -52,14 +53,10 @@ final class ReceiveLoop {
                 if (!InterceptorUtil.shouldProceed(interceptors, client, message))
                     continue;
 
-                try {
-                    handler.onMessage(client, message);
-                } catch (final RuntimeException ex) {
-                    // A failing handler ends this session; the finally block releases the connection
-                    log.error("Handler failed for message from {}, closing connection: {}",
-                            client.getId(), ex.getMessage(), ex);
+                // A failing handler ends this session; the finally block releases the connection
+                if (!HandlingUtil.callHandler(() -> handler.onMessage(client, message),
+                        () -> "for message from " + client.getId()))
                     return;
-                }
             }
         } finally {
             client.disconnect();
