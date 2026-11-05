@@ -99,7 +99,7 @@ class ConnectionSendTest {
             }
 
             assertFalse(pair.client.isConnected(), "a peer that stops reading must be disconnected");
-            assertTrue(pair.client.writer.join(Duration.ofSeconds(5)), "writer thread must terminate");
+            assertTrue(pair.client.writer.thread.join(Duration.ofSeconds(5)), "writer thread must terminate");
         }
     }
 }

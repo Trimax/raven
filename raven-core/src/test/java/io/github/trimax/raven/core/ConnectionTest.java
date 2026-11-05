@@ -116,7 +116,7 @@ class ConnectionTest {
             peer.close();
 
             assertNull(connection.receive());
-            assertTrue(connection.writer.join(Duration.ofSeconds(5)), "writer thread must terminate once the peer has closed");
+            assertTrue(connection.writer.thread.join(Duration.ofSeconds(5)), "writer thread must terminate once the peer has closed");
             assertTrue(socket.isClosed());
         }
     }
