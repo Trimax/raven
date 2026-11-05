@@ -21,7 +21,8 @@ import lombok.extern.slf4j.Slf4j;
  * Connection is established after all beans are initialized to ensure handlers are registered.
  *
  * <p>Required properties: {@code raven.client.host}, {@code raven.client.port}.
- * Optional: {@code raven.client.connect-timeout}, e.g. {@code 5s} or {@code PT5S} (defaults to {@link RavenClientConfiguration}'s value).
+ * Optional: {@code raven.client.connect-timeout} and {@code raven.client.send-timeout}, e.g. {@code 5s} or {@code PT5S},
+ * and {@code raven.client.send-queue-capacity} (all default to {@link RavenClientConfiguration}'s values).
  */
 @Slf4j
 @Configuration(proxyBeanMethods = false)
@@ -42,6 +43,12 @@ public final class RavenClientAutoConfiguration implements SmartInitializingSing
     @Value("${raven.client.connect-timeout:#{null}}")
     private final String connectTimeout;
 
+    @Value("${raven.client.send-queue-capacity:#{null}}")
+    private final Integer sendQueueCapacity;
+
+    @Value("${raven.client.send-timeout:#{null}}")
+    private final String sendTimeout;
+
     private RavenClient client;
 
     @Bean
@@ -55,6 +62,10 @@ public final class RavenClientAutoConfiguration implements SmartInitializingSing
         // Unset keeps the core default instead of duplicating it here
         if (connectTimeout != null)
             builder.connectTimeout(DurationFormatterUtils.detectAndParse(connectTimeout));
+        if (sendQueueCapacity != null)
+            builder.sendQueueCapacity(sendQueueCapacity);
+        if (sendTimeout != null)
+            builder.sendTimeout(DurationFormatterUtils.detectAndParse(sendTimeout));
 
         client = new RavenClient(builder.build());
         return client;

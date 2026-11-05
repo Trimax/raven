@@ -3,12 +3,12 @@ package io.github.trimax.raven.core;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.time.Duration;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 
+import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.util.TryUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,8 +24,8 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 final class ConnectionAcceptor {
 
-    /** Must already be validated to be at least 1 ms and to fit into an {@code int} of milliseconds. */
-    private final Duration handshakeTimeout;
+    /** Already validated by the owning server: the handshake timeout fits into an {@code int} of milliseconds. */
+    private final RavenServerConfiguration configuration;
 
     /** Whether the owning server is still running. */
     private final BooleanSupplier running;
@@ -82,8 +82,8 @@ final class ConnectionAcceptor {
             if (!running.getAsBoolean())
                 throw new IOException("server stopped");
 
-            clientSocket.setSoTimeout((int) handshakeTimeout.toMillis());
-            client = new Client(clientSocket);
+            clientSocket.setSoTimeout((int) configuration.getHandshakeTimeout().toMillis());
+            client = new Client(clientSocket, configuration.getSendQueueCapacity(), configuration.getSendTimeout());
             clientSocket.setSoTimeout(0);
         } catch (final IOException ex) {
             if (running.getAsBoolean())

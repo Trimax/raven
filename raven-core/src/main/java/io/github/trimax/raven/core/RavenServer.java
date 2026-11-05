@@ -44,7 +44,7 @@ public final class RavenServer {
         configuration.validate();
 
         this.configuration = configuration;
-        this.acceptor = new ConnectionAcceptor(this.configuration.getHandshakeTimeout(),
+        this.acceptor = new ConnectionAcceptor(this.configuration,
                 this::isRunning, this::onConnectionAccepted);
         this.receiveLoop = new ReceiveLoop(this.configuration.getHandler(), this.configuration.getInterceptors(),
                 this::isRunning, this::onSessionEnded);
@@ -100,7 +100,7 @@ public final class RavenServer {
      * Broadcasts a message to all connected clients.
      *
      * <p>Delivery is asynchronous: the call returns once the message is queued for each recipient.
-     * If a recipient's queue is full, it blocks for up to 5 seconds per recipient and then disconnects
+     * If a recipient's queue is full, it blocks for up to the configured {@code sendTimeout} (5 seconds by default) per recipient and then disconnects
      * that stalled peer. Write errors are logged and close the connection rather than being thrown; messages
      * still queued when a connection is closed are dropped.
      *
@@ -118,7 +118,7 @@ public final class RavenServer {
      * If the recipient array is empty, no message is sent (no-op).
      *
      * <p>Delivery is asynchronous: the call returns once the message is queued for each recipient.
-     * If a recipient's queue is full, it blocks for up to 5 seconds per recipient and then disconnects
+     * If a recipient's queue is full, it blocks for up to the configured {@code sendTimeout} (5 seconds by default) per recipient and then disconnects
      * that stalled peer. Write errors are logged and close the connection rather than being thrown; messages
      * still queued when a connection is closed are dropped.
      *
@@ -138,7 +138,7 @@ public final class RavenServer {
      * If the recipient array is empty, no message is sent (no-op).
      *
      * <p>Delivery is asynchronous: the call returns once the message is queued for each recipient.
-     * If a recipient's queue is full, it blocks for up to 5 seconds per recipient and then disconnects
+     * If a recipient's queue is full, it blocks for up to the configured {@code sendTimeout} (5 seconds by default) per recipient and then disconnects
      * that stalled peer. Write errors are logged and close the connection rather than being thrown; messages
      * still queued when a connection is closed are dropped.
      *

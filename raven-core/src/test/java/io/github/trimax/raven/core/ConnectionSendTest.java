@@ -22,20 +22,20 @@ class ConnectionSendTest {
         private final Connection server;
 
         Pair() throws Exception {
-            this(Connection.SEND_QUEUE_CAPACITY, Connection.SEND_TIMEOUT_MS);
+            this(TestConnections.QUEUE_CAPACITY, TestConnections.SEND_TIMEOUT);
         }
 
-        Pair(final int clientQueueCapacity, final long clientSendTimeoutMs) throws Exception {
+        Pair(final int clientQueueCapacity, final Duration clientSendTimeout) throws Exception {
             listener = new ServerSocket(0);
             final var accepted = CompletableFuture.supplyAsync(() -> {
                 try {
-                    return new Connection(listener.accept());
+                    return TestConnections.open(listener.accept());
                 } catch (final Exception ex) {
                     throw new IllegalStateException(ex);
                 }
             });
             final Socket raw = new Socket("localhost", listener.getLocalPort());
-            client = new Connection(raw, clientQueueCapacity, clientSendTimeoutMs);
+            client = new Connection(raw, clientQueueCapacity, clientSendTimeout);
             server = accepted.get(5, TimeUnit.SECONDS);
         }
 
@@ -86,7 +86,7 @@ class ConnectionSendTest {
     @Test
     void sendIsBoundedAndDisconnectsStalledPeer() throws Exception {
         final long sendTimeoutMs = 200;
-        try (final var pair = new Pair(4, sendTimeoutMs)) {
+        try (final var pair = new Pair(4, Duration.ofMillis(sendTimeoutMs))) {
             // The server side never calls receive(), so the socket buffers fill up and the writer stalls.
             final var payload = "x".repeat(256 * 1024);
 

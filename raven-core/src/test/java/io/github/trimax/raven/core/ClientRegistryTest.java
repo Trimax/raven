@@ -112,6 +112,6 @@ class ClientRegistryTest {
         resources.add(accepted);
 
         new ObjectOutputStream(accepted.getOutputStream()).flush();
-        return new Client(socket);
+        return new Client(socket, TestConnections.QUEUE_CAPACITY, TestConnections.SEND_TIMEOUT);
     }
 }

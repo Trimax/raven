@@ -28,7 +28,7 @@ class DeserializationFilterTest {
             listener = new ServerSocket(0);
             serverFuture = CompletableFuture.supplyAsync(() -> {
                 try {
-                    return new Connection(listener.accept());
+                    return TestConnections.open(listener.accept());
                 } catch (final Exception ex) {
                     throw new IllegalStateException(ex);
                 }
@@ -56,7 +56,7 @@ class DeserializationFilterTest {
     @Test
     void messageSubclassIsAccepted() throws Exception {
         try (final var pair = new Pair()) {
-            final var client = new Connection(pair.rawClient());
+            final var client = TestConnections.open(pair.rawClient());
             final var server = pair.server();
 
             client.send(new TestMessage("hello"));

@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
+import java.time.Duration;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -15,37 +16,30 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * Encapsulates a TCP socket connection with object stream I/O.
  * Outgoing messages are queued and written by a dedicated writer thread, so the sender never waits for the
- * network. A full queue applies bounded back-pressure: send() waits up to {@link #SEND_TIMEOUT_MS} for space
+ * network. A full queue applies bounded back-pressure: send() waits up to the send timeout for space
  * and disconnects the peer if none frees up. Provides thread-safe send, blocking receive, and clean disconnect.
  */
 @Slf4j
 final class Connection {
-
-    /** Maximum number of messages waiting to be written. */
-    static final int SEND_QUEUE_CAPACITY = 1024;
-
-    /** How long send() waits for space in a full queue before the peer is considered stalled and disconnected. */
-    static final long SEND_TIMEOUT_MS = 5_000;
 
     private final Socket socket;
     private final AtomicBoolean connected;
     private final ObjectInputStream inputStream;
     private final ObjectOutputStream outputStream;
     private final BlockingQueue<Message> outbox;
-    private final long sendTimeoutMs;
+    private final Duration sendTimeout;
     /** Package-private for tests only: lets them verify the writer terminates. */
     final Thread writer;
 
-    Connection(final Socket socket) throws IOException {
-        this(socket, SEND_QUEUE_CAPACITY, SEND_TIMEOUT_MS);
-    }
-
-    /** Package-private for tests: allows a small queue and a short send timeout. */
-    Connection(final Socket socket, final int queueCapacity, final long sendTimeoutMs) throws IOException {
+    /**
+     * @param queueCapacity maximum number of messages waiting to be written
+     * @param sendTimeout   how long send() waits for space in a full queue before disconnecting the peer
+     */
+    Connection(final Socket socket, final int queueCapacity, final Duration sendTimeout) throws IOException {
         this.socket = socket;
         this.connected = new AtomicBoolean(true);
         this.outbox = new ArrayBlockingQueue<>(queueCapacity);
-        this.sendTimeoutMs = sendTimeoutMs;
+        this.sendTimeout = sendTimeout;
 
         try {
             this.outputStream = new ObjectOutputStream(socket.getOutputStream());
@@ -78,8 +72,8 @@ final class Connection {
             return;
 
         try {
-            if (!outbox.offer(message, sendTimeoutMs, TimeUnit.MILLISECONDS)) {
-                log.warn("Send queue full for {}ms, disconnecting stalled peer", sendTimeoutMs);
+            if (!outbox.offer(message, sendTimeout.toMillis(), TimeUnit.MILLISECONDS)) {
+                log.warn("Send queue full for {}, disconnecting stalled peer", sendTimeout);
                 disconnect();
             }
         } catch (final InterruptedException ex) {

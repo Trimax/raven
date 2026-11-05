@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.format.datetime.standard.DurationFormatterUtils;
 
 import io.github.trimax.raven.core.RavenServer;
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
@@ -19,7 +20,9 @@ import lombok.extern.slf4j.Slf4j;
  * Creates a {@link RavenServer} bean configured from properties.
  * Server is started after all beans are initialized to ensure handlers are registered.
  *
- * <p>Required property: {@code raven.server.port}
+ * <p>Required property: {@code raven.server.port}.
+ * Optional: {@code raven.server.send-queue-capacity} and {@code raven.server.send-timeout}, e.g. {@code 5s} or {@code PT5S}
+ * (both default to {@link RavenServerConfiguration}'s values).
  */
 @Slf4j
 @Configuration(proxyBeanMethods = false)
@@ -30,16 +33,32 @@ public final class RavenServerAutoConfiguration implements SmartInitializingSing
     @Value("${raven.server.port}")
     private final int port;
 
+    @Value("${raven.server.send-queue-capacity:#{null}}")
+    private final Integer sendQueueCapacity;
+
+    /**
+     * Parsed here rather than injected as a {@link java.time.Duration}: plain Spring, unlike Spring Boot,
+     * has no String-to-Duration conversion for {@code @Value}.
+     */
+    @Value("${raven.server.send-timeout:#{null}}")
+    private final String sendTimeout;
+
     private RavenServer server;
 
     @Bean
     public RavenServer ravenServer(final ServerMessageRouter router,
                                    final ObjectProvider<ServerMessageInterceptor> interceptors) {
-        server = new RavenServer(RavenServerConfiguration.builder()
+        final var builder = RavenServerConfiguration.builder()
                 .port(port)
                 .handler(router)
-                .interceptors(interceptors.orderedStream().toList())
-                .build());
+                .interceptors(interceptors.orderedStream().toList());
+        // Unset keeps the core default instead of duplicating it here
+        if (sendQueueCapacity != null)
+            builder.sendQueueCapacity(sendQueueCapacity);
+        if (sendTimeout != null)
+            builder.sendTimeout(DurationFormatterUtils.detectAndParse(sendTimeout));
+
+        server = new RavenServer(builder.build());
         return server;
     }
 

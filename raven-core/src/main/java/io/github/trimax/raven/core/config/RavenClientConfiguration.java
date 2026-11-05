@@ -41,7 +41,7 @@ public final class RavenClientConfiguration extends AbstractRavenConfiguration {
     private final Duration connectTimeout = Duration.ofSeconds(10);
 
     @Override
-    public void validate() {
+    void validateSpecific() {
         // A zero socket timeout means "wait forever", and sub-millisecond values truncate to zero
         final var timeout = getConnectTimeout();
         if (timeout.toMillis() < 1)
