@@ -81,7 +81,8 @@ final class Connection {
             log.warn("Received non-RavenMessage object: {}", object.getClass().getName());
             return null;
         } catch (final IOException | ClassNotFoundException ex) {
-            connected.set(false);
+            // Close the socket now: a later disconnect() would see connected == false and skip it
+            disconnect();
             return null;
         }
     }

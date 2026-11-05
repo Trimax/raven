@@ -45,18 +45,11 @@ class ConnectionTest {
 
     @Test
     void disconnectClosesConnection() throws Exception {
-        try (final var serverSocket = new ServerSocket(0)) {
-            final var port = serverSocket.getLocalPort();
-
-            Thread.ofVirtual().start(() -> {
-                try {
-                    final var accepted = serverSocket.accept();
-                    new ObjectOutputStream(accepted.getOutputStream());
-                } catch (final IOException ignored) {
-                }
-            });
-
-            final var socket = new Socket("localhost", port);
+        // The peer is accepted on the test thread and kept open until the end, so setup cannot race
+        try (final var serverSocket = new ServerSocket(0);
+             final var socket = new Socket("localhost", serverSocket.getLocalPort());
+             final var peer = serverSocket.accept()) {
+            new ObjectOutputStream(peer.getOutputStream()).flush();
             final var connection = new Connection(socket);
 
             connection.disconnect();
@@ -68,18 +61,11 @@ class ConnectionTest {
 
     @Test
     void doubleDisconnectIsSafe() throws Exception {
-        try (final var serverSocket = new ServerSocket(0)) {
-            final var port = serverSocket.getLocalPort();
-
-            Thread.ofVirtual().start(() -> {
-                try {
-                    final var accepted = serverSocket.accept();
-                    new ObjectOutputStream(accepted.getOutputStream());
-                } catch (final IOException ignored) {
-                }
-            });
-
-            final var socket = new Socket("localhost", port);
+        // The peer is accepted on the test thread and kept open until the end, so setup cannot race
+        try (final var serverSocket = new ServerSocket(0);
+             final var socket = new Socket("localhost", serverSocket.getLocalPort());
+             final var peer = serverSocket.accept()) {
+            new ObjectOutputStream(peer.getOutputStream()).flush();
             final var connection = new Connection(socket);
 
             connection.disconnect();
@@ -89,22 +75,31 @@ class ConnectionTest {
 
     @Test
     void sendAfterDisconnectDoesNotThrow() throws Exception {
-        try (final var serverSocket = new ServerSocket(0)) {
-            final var port = serverSocket.getLocalPort();
-
-            Thread.ofVirtual().start(() -> {
-                try {
-                    final var accepted = serverSocket.accept();
-                    new ObjectOutputStream(accepted.getOutputStream());
-                } catch (final IOException ignored) {
-                }
-            });
-
-            final var socket = new Socket("localhost", port);
+        // The peer is accepted on the test thread and kept open until the end, so setup cannot race
+        try (final var serverSocket = new ServerSocket(0);
+             final var socket = new Socket("localhost", serverSocket.getLocalPort());
+             final var peer = serverSocket.accept()) {
+            new ObjectOutputStream(peer.getOutputStream()).flush();
             final var connection = new Connection(socket);
 
             connection.disconnect();
             assertDoesNotThrow(() -> connection.send(new TestMessage("should not throw")));
+        }
+    }
+
+    @Test
+    void peerCloseReleasesSocket() throws Exception {
+        try (final var serverSocket = new ServerSocket(0);
+             final var socket = new Socket("localhost", serverSocket.getLocalPort())) {
+            final var peer = serverSocket.accept();
+            new ObjectOutputStream(peer.getOutputStream()).flush();
+            final var connection = new Connection(socket);
+
+            peer.close();
+
+            assertNull(connection.receive());
+            assertFalse(connection.isConnected());
+            assertTrue(socket.isClosed(), "socket must be closed once the peer has closed the connection");
         }
     }
 
