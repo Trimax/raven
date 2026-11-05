@@ -6,6 +6,7 @@ import java.net.Socket;
 import java.time.Duration;
 
 import io.github.trimax.raven.core.config.RavenClientConfiguration;
+import io.github.trimax.raven.core.util.HandlingUtil;
 import io.github.trimax.raven.core.util.InterceptorUtil;
 import io.github.trimax.raven.core.util.MeasurementUtil;
 import io.github.trimax.raven.core.util.TryUtil;
@@ -98,11 +99,8 @@ public final class RavenClient {
 
             connection = newConnection;
             log.info("RavenClient connected to {}:{}", configuration.getHost(), configuration.getPort());
-            try {
-                configuration.getHandler().onConnect();
-            } catch (final RuntimeException ex) {
+            if (!HandlingUtil.callHandler(configuration.getHandler()::onConnect, () -> "on connect")) {
                 // Without this the client would look connected while no receiver is running
-                log.error("Handler failed on connect, closing connection: {}", ex.getMessage(), ex);
                 final var failed = connection;
                 connection = null;
                 failed.disconnect();
@@ -121,14 +119,11 @@ public final class RavenClient {
 
     private Connection openConnection(final Socket socket) throws IOException {
         final var timeoutMs = toSocketTimeoutMillis(configuration.getConnectTimeout());
-        try {
+        HandlingUtil.closeOnFailure(socket, () -> {
             socket.connect(new InetSocketAddress(configuration.getHost(), configuration.getPort()), timeoutMs);
             // Bound the stream-header exchange, which otherwise blocks until the server writes its header
             socket.setSoTimeout(timeoutMs);
-        } catch (final IOException | RuntimeException ex) {
-            socket.close();
-            throw ex;
-        }
+        });
 
         // Connection closes the socket itself if its construction fails
         final var newConnection = new Connection(socket, configuration.getSendQueueCapacity(), configuration.getSendTimeout());
@@ -156,7 +151,7 @@ public final class RavenClient {
         connectGeneration++;
         if (pendingSocket != null) {
             // Unblocks the connecting thread instead of letting it wait for the connect timeout
-            TryUtil.execute(pendingSocket::close, ex -> log.debug("Error closing pending socket: {}", ex.getMessage()));
+            TryUtil.execute(pendingSocket::close);
             pendingSocket = null;
         }
 
@@ -221,13 +216,9 @@ public final class RavenClient {
                 if (!InterceptorUtil.shouldProceed(configuration.getInterceptors(), message))
                     continue;
 
-                try {
-                    configuration.getHandler().onMessage(message);
-                } catch (final RuntimeException ex) {
-                    // A failing handler ends this session; finally below releases the connection
-                    log.error("Handler failed for received message, closing connection: {}", ex.getMessage(), ex);
+                // A failing handler ends this session; finally below releases the connection
+                if (!HandlingUtil.callHandler(() -> configuration.getHandler().onMessage(message), () -> "for received message"))
                     return;
-                }
             }
         } finally {
             // Runs on normal exit and on errors, so the socket is never left open

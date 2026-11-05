@@ -11,6 +11,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.github.trimax.raven.core.filter.MessageInputFilter;
+import io.github.trimax.raven.core.util.HandlingUtil;
+import io.github.trimax.raven.core.util.TryUtil;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -41,13 +43,9 @@ final class Connection {
         this.outbox = new ArrayBlockingQueue<>(queueCapacity);
         this.sendTimeout = sendTimeout;
 
-        try {
-            this.outputStream = new ObjectOutputStream(socket.getOutputStream());
-            this.inputStream = new ObjectInputStream(socket.getInputStream());
-        } catch (final IOException | RuntimeException exception) {
-            close(socket);
-            throw exception;
-        }
+        // The caller never receives this object if the stream setup fails, so the socket is released here
+        this.outputStream = HandlingUtil.closeOnFailure(socket, () -> new ObjectOutputStream(socket.getOutputStream()));
+        this.inputStream = HandlingUtil.closeOnFailure(socket, () -> new ObjectInputStream(socket.getInputStream()));
 
         this.inputStream.setObjectInputFilter(MessageInputFilter.INSTANCE);
         this.writer = Thread.ofVirtual().name("raven-writer").unstarted(this::writeLoop);
@@ -131,14 +129,6 @@ final class Connection {
             return;
 
         writer.interrupt();
-        close(this.socket);
-    }
-
-    private static void close(final Socket socket) {
-        try {
-            socket.close();
-        } catch (final IOException ex) {
-            log.debug("Error closing socket: {}", ex.getMessage());
-        }
+        TryUtil.execute(socket::close);
     }
 }

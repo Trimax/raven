@@ -9,7 +9,9 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.util.ArrayUtil;
+import io.github.trimax.raven.core.util.HandlingUtil;
 import io.github.trimax.raven.core.util.MeasurementUtil;
+import io.github.trimax.raven.core.util.TryUtil;
 import io.github.trimax.raven.core.validation.MessageValidator;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -88,11 +90,7 @@ public final class RavenServer {
         for (final var client : clients.removeAll())
             disconnectClient(client);
 
-        try {
-            socket.close();
-        } catch (final IOException ex) {
-            log.debug("Error closing server socket: {}", ex.getMessage());
-        }
+        TryUtil.execute(socket::close);
 
         log.info("RavenServer stopped");
     }
@@ -227,11 +225,9 @@ public final class RavenServer {
         }
 
         log.info("Client connected: {} ({})", client.getId(), socket.getRemoteSocketAddress());
-        try {
-            configuration.getHandler().onConnect(client);
-        } catch (final RuntimeException ex) {
+        if (!HandlingUtil.callHandler(() -> configuration.getHandler().onConnect(client),
+                () -> "on connect for " + socket.getRemoteSocketAddress())) {
             // The receive loop never starts, so the connection must be released here
-            log.error("Handler failed on connect for {}: {}", socket.getRemoteSocketAddress(), ex.getMessage(), ex);
             clients.remove(client.getId());
             client.disconnect();
             return false;
