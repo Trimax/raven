@@ -34,7 +34,7 @@ final class ReceiveLoop {
     /**
      * Runs the receive loop for the client on the current thread.
      * Ends when the client disconnects, the server stops, or the handler throws.
-     * The client is always disconnected and {@code onSessionEnded} is always invoked afterwards.
+     * The client is always disconnected and {@code onSessionEnded} is always invoked afterward.
      */
     void run(final Client client) {
         try {

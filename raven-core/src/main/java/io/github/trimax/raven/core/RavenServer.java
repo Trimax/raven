@@ -3,7 +3,6 @@ package io.github.trimax.raven.core;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
@@ -35,13 +34,16 @@ public final class RavenServer {
     @NonNull
     private final RavenServerConfiguration configuration;
 
-    private final ClientRegistry clients = new ClientRegistry();
-    private final ConnectionAcceptor acceptor;
     private final ReceiveLoop receiveLoop;
+    private final ConnectionAcceptor acceptor;
+
+    private final ClientRegistry clients = new ClientRegistry();
     private final AtomicReference<ServerSocket> serverSocket = new AtomicReference<>();
 
-    public RavenServer(final RavenServerConfiguration configuration) {
-        this.configuration = validate(configuration);
+    public RavenServer(@NonNull final RavenServerConfiguration configuration) {
+        configuration.validate();
+
+        this.configuration = configuration;
         this.acceptor = new ConnectionAcceptor(this.configuration.getHandshakeTimeout(),
                 this::isRunning, this::onConnectionAccepted);
         this.receiveLoop = new ReceiveLoop(this.configuration.getHandler(), this.configuration.getInterceptors(),
@@ -236,18 +238,5 @@ public final class RavenServer {
         configuration.getHandler().onDisconnect(client);
 
         log.info("Client disconnected: {}", client.getId());
-    }
-
-    private static RavenServerConfiguration validate(final RavenServerConfiguration configuration) {
-        Objects.requireNonNull(configuration, "configuration must not be null");
-
-        // A zero socket timeout means "wait forever", so a timeout that truncates to 0 ms would disable the protection
-        final var timeout = configuration.getHandshakeTimeout();
-        if (timeout.toMillis() < 1)
-            throw new IllegalArgumentException("handshakeTimeout must be at least 1ms, got " + timeout);
-        if (timeout.toMillis() > Integer.MAX_VALUE)
-            throw new IllegalArgumentException("handshakeTimeout is too large: " + timeout);
-
-        return configuration;
     }
 }

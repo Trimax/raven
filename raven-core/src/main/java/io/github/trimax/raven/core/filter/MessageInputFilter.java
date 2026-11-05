@@ -1,4 +1,4 @@
-package io.github.trimax.raven.core;
+package io.github.trimax.raven.core.filter;
 
 import java.io.ObjectInputFilter;
 import java.math.BigDecimal;
@@ -17,6 +17,8 @@ import java.util.LinkedList;
 import java.util.Set;
 import java.util.UUID;
 
+import io.github.trimax.raven.core.Message;
+
 /**
  * Deserialization filter applied to every object read from the network.
  *
@@ -25,9 +27,9 @@ import java.util.UUID;
  * before its constructor or {@code readObject} logic runs. Structural limits (depth, number of
  * references and array length) protect against resource-exhaustion payloads.
  */
-final class MessageInputFilter implements ObjectInputFilter {
+public final class MessageInputFilter implements ObjectInputFilter {
 
-    static final MessageInputFilter INSTANCE = new MessageInputFilter();
+    public static final MessageInputFilter INSTANCE = new MessageInputFilter();
 
     static final long MAX_DEPTH = 64;
     static final long MAX_REFERENCES = 100_000;

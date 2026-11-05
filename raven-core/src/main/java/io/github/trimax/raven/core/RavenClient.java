@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.time.Duration;
-import java.util.Objects;
 
 import io.github.trimax.raven.core.config.RavenClientConfiguration;
 import io.github.trimax.raven.core.util.InterceptorUtil;
@@ -43,8 +42,10 @@ public final class RavenClient {
      */
     private long connectGeneration;
 
-    public RavenClient(final RavenClientConfiguration configuration) {
-        this.configuration = validate(configuration);
+    public RavenClient(@NonNull final RavenClientConfiguration configuration) {
+        configuration.validate();
+
+        this.configuration = configuration;
     }
 
     /**
@@ -232,19 +233,6 @@ public final class RavenClient {
                     closeConnection();
             }
         }
-    }
-
-    private static RavenClientConfiguration validate(final RavenClientConfiguration configuration) {
-        Objects.requireNonNull(configuration, "configuration must not be null");
-
-        // A zero socket timeout means "wait forever", and sub-millisecond values truncate to zero
-        final var timeout = configuration.getConnectTimeout();
-        if (timeout.toMillis() < 1)
-            throw new IllegalArgumentException("connectTimeout must be at least 1ms, got " + timeout);
-        if (timeout.toMillis() > Integer.MAX_VALUE)
-            throw new IllegalArgumentException("connectTimeout is too large: " + timeout);
-
-        return configuration;
     }
 
     private static int toSocketTimeoutMillis(final Duration timeout) {
