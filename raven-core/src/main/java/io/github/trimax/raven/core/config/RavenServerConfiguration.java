@@ -1,5 +1,6 @@
 package io.github.trimax.raven.core.config;
 
+import java.time.Duration;
 import java.util.List;
 
 import io.github.trimax.raven.core.handler.ServerHandler;
@@ -27,4 +28,12 @@ public final class RavenServerConfiguration extends AbstractRavenConfiguration {
     @NonNull
     @Builder.Default
     private final List<ServerMessageInterceptor> interceptors = List.of();
+
+    /**
+     * Maximum time a new connection may take to deliver its stream header before it is dropped.
+     * Must be at least 1 millisecond and no larger than {@link Integer#MAX_VALUE} milliseconds (about 24.8 days).
+     */
+    @NonNull
+    @Builder.Default
+    private final Duration handshakeTimeout = Duration.ofSeconds(5);
 }
