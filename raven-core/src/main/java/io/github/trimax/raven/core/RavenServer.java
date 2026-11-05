@@ -170,7 +170,7 @@ public final class RavenServer {
 
     /**
      * Called on the handshake thread once a connection is established. Registers the client, notifies the
-     * handler and starts the reception loop. Any failure of the handler's {@code onConnect} releases the
+     * handler and starts the receive loop. Any failure of the handler's {@code onConnect} releases the
      * connection, so the accept path keeps running.
      */
     private void onConnectionAccepted(final Socket socket, final Client client) {
@@ -184,7 +184,7 @@ public final class RavenServer {
         }
 
         // stop() skipped this client while onConnect ran, so its single disconnect is reported here and the
-        // reception loop, which would exit at once, is not started
+        // receive loop, which would exit at once, is not started
         if (!isRunning()) {
             if (clients.remove(client.getId()) != null)
                 disconnectClient(client);
@@ -214,7 +214,7 @@ public final class RavenServer {
         try {
             configuration.getHandler().onConnect(client);
         } catch (final RuntimeException ex) {
-            // The reception loop never starts, so the connection must be released here
+            // The receive loop never starts, so the connection must be released here
             log.error("Handler failed on connect for {}: {}", socket.getRemoteSocketAddress(), ex.getMessage(), ex);
             clients.remove(client.getId());
             client.disconnect();

@@ -32,7 +32,7 @@ final class ReceiveLoop {
     private final Consumer<Client> onSessionEnded;
 
     /**
-     * Runs the reception loop for the client on the current thread.
+     * Runs the receive loop for the client on the current thread.
      * Ends when the client disconnects, the server stops, or the handler throws.
      * The client is always disconnected and {@code onSessionEnded} is always invoked afterward.
      */
