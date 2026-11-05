@@ -29,7 +29,10 @@ public final class RavenClient {
     @NonNull
     private final RavenClientConfiguration configuration;
 
-    private Connection connection;
+    /**
+     * Current connection. Volatile because it is read without the monitor by {@link #send(Message)}.
+     */
+    private volatile Connection connection;
     private Thread receiverThread;
 
     /**
@@ -61,7 +64,16 @@ public final class RavenClient {
 
             connection = newConnection;
             log.info("RavenClient connected to {}:{}", configuration.getHost(), configuration.getPort());
-            configuration.getHandler().onConnect();
+            try {
+                configuration.getHandler().onConnect();
+            } catch (final RuntimeException ex) {
+                // Without this the client would look connected while no receiver is running
+                log.error("Handler failed on connect, closing connection: {}", ex.getMessage(), ex);
+                final var failed = connection;
+                connection = null;
+                failed.disconnect();
+                return;
+            }
 
             receiverThread = Thread.ofVirtual().name("raven-receiver").start(() -> receiveLoop(newConnection));
         }

@@ -23,10 +23,24 @@ final class Connection {
     Connection(final Socket socket) throws IOException {
         this.socket = socket;
         this.connected = new AtomicBoolean(true);
-        this.outputStream = new ObjectOutputStream(socket.getOutputStream());
-        this.inputStream = new ObjectInputStream(socket.getInputStream());
+        try {
+            this.outputStream = new ObjectOutputStream(socket.getOutputStream());
+            this.inputStream = new ObjectInputStream(socket.getInputStream());
+        } catch (final IOException | RuntimeException ex) {
+            // The caller never receives this object, so it must not keep the socket open
+            closeQuietly(socket);
+            throw ex;
+        }
         // Untrusted peer input: only Message subclasses and safe JDK value types may be deserialized
         this.inputStream.setObjectInputFilter(MessageInputFilter.INSTANCE);
+    }
+
+    private static void closeQuietly(final Socket socket) {
+        try {
+            socket.close();
+        } catch (final IOException ex) {
+            log.debug("Error closing socket after failed connection setup: {}", ex.getMessage());
+        }
     }
 
     /**
