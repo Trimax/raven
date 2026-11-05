@@ -101,6 +101,8 @@ Configure:
 ```properties
 raven.client.host=localhost
 raven.client.port=9090
+# Optional: limit for opening the connection and completing the handshake (default 10s)
+raven.client.connect-timeout=10s
 ```
 
 Write a handler:
