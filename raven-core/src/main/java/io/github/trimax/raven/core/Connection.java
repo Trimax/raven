@@ -2,7 +2,6 @@ package io.github.trimax.raven.core;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.net.Socket;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -38,11 +37,12 @@ final class Connection {
         this.socket = socket;
         this.connected = new AtomicBoolean(true);
 
-        final var outputStream = new ObjectOutputStream(socket.getOutputStream());
+        // The writer sends our stream header before we wait for the peer's; the other order would leave
+        // both sides waiting for each other's header
+        this.writer = new MessageWriter(socket.getOutputStream(), queueCapacity, sendTimeout, connected::get, this::disconnect);
         this.inputStream = new ObjectInputStream(socket.getInputStream());
 
         this.inputStream.setObjectInputFilter(MessageInputFilter.INSTANCE);
-        this.writer = new MessageWriter(outputStream, queueCapacity, sendTimeout, connected::get, this::disconnect);
     }
 
     /**

@@ -2,6 +2,7 @@ package io.github.trimax.raven.core;
 
 import java.io.IOException;
 import java.io.ObjectOutputStream;
+import java.io.OutputStream;
 import java.time.Duration;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -34,12 +35,16 @@ final class MessageWriter {
     final Thread thread;
 
     /**
+     * Wraps the stream in an {@link ObjectOutputStream}, which writes the stream header to the peer at once.
+     *
+     * @param output        the raw output stream of the connection
      * @param queueCapacity maximum number of messages waiting to be written
      * @param sendTimeout   how long {@link #offer(Message)} waits for space in a full queue
+     * @throws IOException if the stream header cannot be written
      */
-    MessageWriter(final ObjectOutputStream outputStream, final int queueCapacity, final Duration sendTimeout,
-                  final BooleanSupplier connected, final Runnable onFailure) {
-        this.outputStream = outputStream;
+    MessageWriter(final OutputStream output, final int queueCapacity, final Duration sendTimeout,
+                  final BooleanSupplier connected, final Runnable onFailure) throws IOException {
+        this.outputStream = new ObjectOutputStream(output);
         this.outbox = new ArrayBlockingQueue<>(queueCapacity);
         this.sendTimeout = sendTimeout;
         this.connected = connected;

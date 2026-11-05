@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
@@ -29,7 +28,7 @@ class MessageWriterTest {
         try (final var serverSocket = new ServerSocket(0, 0, InetAddress.getLoopbackAddress());
              final var socket = new Socket("localhost", serverSocket.getLocalPort());
              final var peer = serverSocket.accept()) {
-            final var writer = new MessageWriter(new ObjectOutputStream(socket.getOutputStream()),
+            final var writer = new MessageWriter(socket.getOutputStream(),
                     TestConnections.QUEUE_CAPACITY, TestConnections.SEND_TIMEOUT, () -> true, () -> { });
             final var input = new ObjectInputStream(peer.getInputStream());
             writer.start();
@@ -48,7 +47,7 @@ class MessageWriterTest {
     @Test
     void offerReturnsFalseWhenQueueStaysFull() throws Exception {
         final var output = new BlockingOutputStream();
-        final var writer = new MessageWriter(new ObjectOutputStream(output), 1, Duration.ofMillis(100), () -> true, () -> { });
+        final var writer = new MessageWriter(output, 1, Duration.ofMillis(100), () -> true, () -> { });
         output.block();
         writer.start();
 
@@ -65,7 +64,7 @@ class MessageWriterTest {
 
     @Test
     void stopEndsThread() throws Exception {
-        final var writer = new MessageWriter(new ObjectOutputStream(new ByteArrayOutputStream()),
+        final var writer = new MessageWriter(new ByteArrayOutputStream(),
                 TestConnections.QUEUE_CAPACITY, TestConnections.SEND_TIMEOUT, () -> true, () -> { });
         writer.start();
 
@@ -78,7 +77,7 @@ class MessageWriterTest {
     void writeFailureCallsOnFailure() throws Exception {
         final var output = new FailingOutputStream();
         final var failures = new AtomicInteger();
-        final var writer = new MessageWriter(new ObjectOutputStream(output),
+        final var writer = new MessageWriter(output,
                 TestConnections.QUEUE_CAPACITY, TestConnections.SEND_TIMEOUT, () -> true, failures::incrementAndGet);
         output.fail.set(true);
         writer.start();
