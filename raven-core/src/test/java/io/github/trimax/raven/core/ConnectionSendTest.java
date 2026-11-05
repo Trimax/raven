@@ -1,10 +1,10 @@
 package io.github.trimax.raven.core;
 
-import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -22,6 +22,10 @@ class ConnectionSendTest {
         private final Connection server;
 
         Pair() throws Exception {
+            this(Connection.SEND_QUEUE_CAPACITY, Connection.SEND_TIMEOUT_MS);
+        }
+
+        Pair(final int clientQueueCapacity, final long clientSendTimeoutMs) throws Exception {
             listener = new ServerSocket(0);
             final var accepted = CompletableFuture.supplyAsync(() -> {
                 try {
@@ -31,7 +35,7 @@ class ConnectionSendTest {
                 }
             });
             final Socket raw = new Socket("localhost", listener.getLocalPort());
-            client = new Connection(raw);
+            client = new Connection(raw, clientQueueCapacity, clientSendTimeoutMs);
             server = accepted.get(5, TimeUnit.SECONDS);
         }
 
@@ -59,18 +63,42 @@ class ConnectionSendTest {
     }
 
     @Test
-    void sendDoesNotBlockOnSlowPeerAndDisconnectsIt() throws Exception {
+    void burstToReadingPeerIsFullyDelivered() throws Exception {
         try (final var pair = new Pair()) {
+            final int count = 5_000;
+            final var reader = CompletableFuture.supplyAsync(() -> {
+                for (int i = 0; i < count; i++) {
+                    final var received = pair.server.receive();
+                    if (!(received instanceof TestMessage message) || !String.valueOf(i).equals(message.getContent()))
+                        return i;
+                }
+                return count;
+            });
+
+            for (int i = 0; i < count; i++)
+                pair.client.send(new TestMessage(String.valueOf(i)));
+
+            assertEquals(count, reader.get(30, TimeUnit.SECONDS), "every message must arrive in order");
+            assertTrue(pair.client.isConnected(), "a peer that keeps reading must not be disconnected");
+        }
+    }
+
+    @Test
+    void sendIsBoundedAndDisconnectsStalledPeer() throws Exception {
+        final long sendTimeoutMs = 200;
+        try (final var pair = new Pair(4, sendTimeoutMs)) {
             // The server side never calls receive(), so the socket buffers fill up and the writer stalls.
-            final var payload = "x".repeat(16 * 1024);
-            final long started = System.nanoTime();
+            final var payload = "x".repeat(256 * 1024);
 
-            for (int i = 0; i < Connection.SEND_QUEUE_CAPACITY * 4; i++)
+            for (int i = 0; i < 10_000 && pair.client.isConnected(); i++) {
+                final long started = System.nanoTime();
                 pair.client.send(new TestMessage(payload));
+                final long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+                assertTrue(elapsedMs < sendTimeoutMs + 2_000, "send() must be bounded by the send timeout, took " + elapsedMs + "ms");
+            }
 
-            final long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
-            assertTrue(elapsedMs < 5_000, "send() must not wait for the network, took " + elapsedMs + "ms");
-            await().atMost(5, TimeUnit.SECONDS).until(() -> !pair.client.isConnected());
+            assertFalse(pair.client.isConnected(), "a peer that stops reading must be disconnected");
+            assertTrue(pair.client.writer.join(Duration.ofSeconds(5)), "writer thread must terminate");
         }
     }
 }

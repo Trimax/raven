@@ -6,6 +6,7 @@ import java.io.ObjectOutputStream;
 import java.net.Socket;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.github.trimax.raven.core.filter.MessageInputFilter;
@@ -13,26 +14,38 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * Encapsulates a TCP socket connection with object stream I/O.
- * Outgoing messages are queued and written by a dedicated writer thread, so a slow peer can never block
- * the sender. Provides thread-safe send, blocking receive, and clean disconnect.
+ * Outgoing messages are queued and written by a dedicated writer thread, so the sender never waits for the
+ * network. A full queue applies bounded back-pressure: send() waits up to {@link #SEND_TIMEOUT_MS} for space
+ * and disconnects the peer if none frees up. Provides thread-safe send, blocking receive, and clean disconnect.
  */
 @Slf4j
 final class Connection {
 
-    /** Maximum number of messages waiting to be written. A peer that falls this far behind is disconnected. */
+    /** Maximum number of messages waiting to be written. */
     static final int SEND_QUEUE_CAPACITY = 1024;
+
+    /** How long send() waits for space in a full queue before the peer is considered stalled and disconnected. */
+    static final long SEND_TIMEOUT_MS = 5_000;
 
     private final Socket socket;
     private final AtomicBoolean connected;
     private final ObjectInputStream inputStream;
     private final ObjectOutputStream outputStream;
-    private final BlockingQueue<Message> outbox = new ArrayBlockingQueue<>(SEND_QUEUE_CAPACITY);
+    private final BlockingQueue<Message> outbox;
+    private final long sendTimeoutMs;
     /** Package-private for tests only: lets them verify the writer terminates. */
     final Thread writer;
 
     Connection(final Socket socket) throws IOException {
+        this(socket, SEND_QUEUE_CAPACITY, SEND_TIMEOUT_MS);
+    }
+
+    /** Package-private for tests: allows a small queue and a short send timeout. */
+    Connection(final Socket socket, final int queueCapacity, final long sendTimeoutMs) throws IOException {
         this.socket = socket;
         this.connected = new AtomicBoolean(true);
+        this.outbox = new ArrayBlockingQueue<>(queueCapacity);
+        this.sendTimeoutMs = sendTimeoutMs;
 
         try {
             this.outputStream = new ObjectOutputStream(socket.getOutputStream());
@@ -55,16 +68,23 @@ final class Connection {
     }
 
     /**
-     * Queues a message for sending. Never blocks on the network.
-     * If the queue is full, the peer is not keeping up and the connection is closed.
+     * Queues a message for the writer thread and returns once it is queued; write errors are logged
+     * and close the connection instead of being thrown. If the queue is full, waits up to the send timeout
+     * for space, then treats the peer as stalled and disconnects it. Messages still queued at
+     * {@link #disconnect()} are dropped.
      */
     void send(final Message message) {
         if (!connected.get())
             return;
 
-        if (!outbox.offer(message)) {
-            log.warn("Send queue full ({} messages), disconnecting slow peer", SEND_QUEUE_CAPACITY);
-            disconnect();
+        try {
+            if (!outbox.offer(message, sendTimeoutMs, TimeUnit.MILLISECONDS)) {
+                log.warn("Send queue full for {}ms, disconnecting stalled peer", sendTimeoutMs);
+                disconnect();
+            }
+        } catch (final InterruptedException ex) {
+            log.debug("Interrupted while queueing message, dropping it");
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -79,7 +99,11 @@ final class Connection {
         } catch (final InterruptedException ex) {
             Thread.currentThread().interrupt();
         } catch (final IOException ex) {
-            log.warn("Failed to send message: {}", ex.getMessage());
+            // disconnect() closes the socket under an in-flight write: that is ordinary shutdown, not a failure
+            if (connected.get())
+                log.warn("Failed to send message: {}", ex.getMessage());
+            else
+                log.debug("Writer stopped by disconnect: {}", ex.getMessage());
             disconnect();
         }
     }
