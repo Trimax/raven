@@ -75,16 +75,15 @@ final class ConnectionAcceptor {
     }
 
     private void handshake(final Socket clientSocket) {
-        final Client client;
+        final Connection connection;
         handshakes.add(clientSocket);
         try {
             // closeHandshakes() runs after the server is marked stopped, so this re-check covers a late add
             if (!running.getAsBoolean())
                 throw new IOException("server stopped");
 
-            clientSocket.setSoTimeout((int) configuration.getHandshakeTimeout().toMillis());
-            client = new Client(clientSocket, configuration.getSendQueueCapacity(), configuration.getSendTimeout());
-            clientSocket.setSoTimeout(0);
+            connection = Connection.open(clientSocket, configuration.getHandshakeTimeout(),
+                    configuration.getSendQueueCapacity(), configuration.getSendTimeout());
         } catch (final IOException ex) {
             if (running.getAsBoolean())
                 log.error("Error setting up connection from {}: {}",
@@ -95,6 +94,6 @@ final class ConnectionAcceptor {
             handshakes.remove(clientSocket);
         }
 
-        onAccepted.accept(clientSocket, client);
+        onAccepted.accept(clientSocket, new Client(connection));
     }
 }

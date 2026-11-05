@@ -1,26 +1,21 @@
 package io.github.trimax.raven.core;
 
-import java.io.IOException;
-import java.net.Socket;
-import java.time.Duration;
 import java.util.UUID;
 
+import lombok.AccessLevel;
 import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 
 /**
  * Represents a single client connected to the {@link RavenServer}.
  * Wraps a {@link Connection} and adds a unique identifier.
  */
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 public final class Client {
 
     @Getter
-    private final UUID id;
+    private final UUID id = UUID.randomUUID();
     private final Connection connection;
-
-    Client(final Socket socket, final int sendQueueCapacity, final Duration sendTimeout) throws IOException {
-        this.id = UUID.randomUUID();
-        this.connection = new Connection(socket, sendQueueCapacity, sendTimeout);
-    }
 
     /**
      * Sends a message to this client. Thread-safe.

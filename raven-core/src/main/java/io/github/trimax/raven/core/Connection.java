@@ -34,6 +34,9 @@ final class Connection {
     final Thread writer;
 
     /**
+     * Sets up the object streams without starting the writer; use {@link #open} unless a test needs that.
+     * Does not close the socket on failure.
+     *
      * @param queueCapacity maximum number of messages waiting to be written
      * @param sendTimeout   how long send() waits for space in a full queue before disconnecting the peer
      */
@@ -43,13 +46,42 @@ final class Connection {
         this.outbox = new ArrayBlockingQueue<>(queueCapacity);
         this.sendTimeout = sendTimeout;
 
-        // The caller never receives this object if the stream setup fails, so the socket is released here
-        this.outputStream = HandlingUtil.closeOnFailure(socket, () -> new ObjectOutputStream(socket.getOutputStream()));
-        this.inputStream = HandlingUtil.closeOnFailure(socket, () -> new ObjectInputStream(socket.getInputStream()));
+        this.outputStream = new ObjectOutputStream(socket.getOutputStream());
+        this.inputStream = new ObjectInputStream(socket.getInputStream());
 
         this.inputStream.setObjectInputFilter(MessageInputFilter.INSTANCE);
         this.writer = Thread.ofVirtual().name("raven-writer").unstarted(this::writeLoop);
-        this.writer.start();
+    }
+
+    /**
+     * Performs the stream-header handshake on a connected socket and returns a started connection.
+     * The handshake is bounded by {@code handshakeTimeout}; afterward reads block without a timeout.
+     *
+     * @param handshakeTimeout how long to wait for the peer's stream header
+     * @param queueCapacity    maximum number of messages waiting to be written
+     * @param sendTimeout      how long send() waits for space in a full queue before disconnecting the peer
+     * @throws IOException if the handshake fails or times out; the socket is closed by then
+     */
+    static Connection open(final Socket socket, final Duration handshakeTimeout,
+                           final int queueCapacity, final Duration sendTimeout) throws IOException {
+        // The caller never receives a connection if the handshake fails, so the socket is released here
+        return HandlingUtil.closeOnFailure(socket, () -> {
+            // Bound the stream-header exchange, which otherwise blocks until the peer writes its header
+            socket.setSoTimeout((int) handshakeTimeout.toMillis());
+            final var connection = new Connection(socket, queueCapacity, sendTimeout);
+            socket.setSoTimeout(0);
+
+            // Started last, so a failed handshake never leaves a writer thread behind
+            connection.start();
+            return connection;
+        });
+    }
+
+    /**
+     * Starts the writer thread. Called once, by {@link #open}.
+     */
+    void start() {
+        writer.start();
     }
 
     /**
