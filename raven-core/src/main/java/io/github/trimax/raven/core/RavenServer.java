@@ -294,10 +294,10 @@ public final class RavenServer {
     private static RavenServerConfiguration validate(final RavenServerConfiguration configuration) {
         Objects.requireNonNull(configuration, "configuration must not be null");
 
-        // A zero socket timeout means "wait forever", so a zero or negative handshake timeout would disable the protection
+        // A zero socket timeout means "wait forever", so a timeout that truncates to 0 ms would disable the protection
         final var timeout = configuration.getHandshakeTimeout();
-        if (timeout.isZero() || timeout.isNegative())
-            throw new IllegalArgumentException("handshakeTimeout must be positive, got " + timeout);
+        if (timeout.toMillis() < 1)
+            throw new IllegalArgumentException("handshakeTimeout must be at least 1ms, got " + timeout);
         if (timeout.toMillis() > Integer.MAX_VALUE)
             throw new IllegalArgumentException("handshakeTimeout is too large: " + timeout);
 

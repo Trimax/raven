@@ -69,6 +69,18 @@ class RavenServerHandshakeConfigTest {
     }
 
     @Test
+    void rejectsSubMillisecondTimeout() {
+        // 0.5 ms truncates to a socket timeout of 0, which would mean "wait forever"
+        final var configuration = RavenServerConfiguration.builder()
+                .port(0)
+                .handler(NOOP)
+                .handshakeTimeout(Duration.ofNanos(500_000))
+                .build();
+
+        assertThrows(IllegalArgumentException.class, () -> new RavenServer(configuration));
+    }
+
+    @Test
     void rejectsTimeoutLargerThanSocketTimeoutRange() {
         final var configuration = RavenServerConfiguration.builder()
                 .port(0)

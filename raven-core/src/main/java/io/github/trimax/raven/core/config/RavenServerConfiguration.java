@@ -31,7 +31,7 @@ public final class RavenServerConfiguration extends AbstractRavenConfiguration {
 
     /**
      * Maximum time a new connection may take to deliver its stream header before it is dropped.
-     * Must be positive and no larger than {@link Integer#MAX_VALUE} milliseconds (about 24.8 days).
+     * Must be at least 1 millisecond and no larger than {@link Integer#MAX_VALUE} milliseconds (about 24.8 days).
      */
     @NonNull
     @Builder.Default
