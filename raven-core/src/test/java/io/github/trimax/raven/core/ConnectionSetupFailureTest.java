@@ -9,7 +9,7 @@ import java.net.Socket;
 import org.junit.jupiter.api.Test;
 
 /**
- * Verifies that a {@link Connection} that fails during construction closes the socket it was given.
+ * Verifies that {@link Connection#open} closes the socket it was given when the connection cannot be set up.
  */
 class ConnectionSetupFailureTest {
 
@@ -18,7 +18,7 @@ class ConnectionSetupFailureTest {
         final var socket = new FailingInputSocket();
 
         assertThrows(IOException.class, () -> TestConnections.open(socket));
-        assertTrue(socket.isClosed(), "socket must be closed when Connection construction fails");
+        assertTrue(socket.isClosed(), "socket must be closed when Connection setup fails");
     }
 
     /**

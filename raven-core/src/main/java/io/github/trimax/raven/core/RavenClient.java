@@ -3,7 +3,6 @@ package io.github.trimax.raven.core;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
-import java.time.Duration;
 
 import io.github.trimax.raven.core.config.RavenClientConfiguration;
 import io.github.trimax.raven.core.util.HandlingUtil;
@@ -119,23 +118,12 @@ public final class RavenClient {
     }
 
     private Connection openConnection(final Socket socket) throws IOException {
-        final var timeoutMs = toSocketTimeoutMillis(configuration.getConnectTimeout());
-        HandlingUtil.closeOnFailure(socket, () -> {
-            socket.connect(new InetSocketAddress(configuration.getHost(), configuration.getPort()), timeoutMs);
-            // Bound the stream-header exchange, which otherwise blocks until the server writes its header
-            socket.setSoTimeout(timeoutMs);
+        final var connectTimeout = configuration.getConnectTimeout();
+        return HandlingUtil.closeOnFailure(socket, () -> {
+            socket.connect(new InetSocketAddress(configuration.getHost(), configuration.getPort()), (int) connectTimeout.toMillis());
+            // The connect timeout also bounds the stream-header exchange with the server
+            return Connection.open(socket, connectTimeout, configuration.getSendQueueCapacity(), configuration.getSendTimeout());
         });
-
-        // Connection closes the socket itself if its construction fails
-        final var newConnection = new Connection(socket, configuration.getSendQueueCapacity(), configuration.getSendTimeout());
-        try {
-            socket.setSoTimeout(0);
-        } catch (final IOException | RuntimeException ex) {
-            newConnection.disconnect();
-            throw ex;
-        }
-
-        return newConnection;
     }
 
     /**
@@ -227,9 +215,5 @@ public final class RavenClient {
         // Not disconnect(): that would also abort a reconnect attempt started after this connection dropped
         if (connection == activeConnection)
             closeConnection();
-    }
-
-    private static int toSocketTimeoutMillis(final Duration timeout) {
-        return (int) timeout.toMillis();
     }
 }
