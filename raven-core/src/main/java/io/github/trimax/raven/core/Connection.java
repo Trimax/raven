@@ -1,12 +1,10 @@
 package io.github.trimax.raven.core;
 
 import java.io.IOException;
-import java.io.ObjectInputStream;
 import java.net.Socket;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import io.github.trimax.raven.core.filter.MessageInputFilter;
 import io.github.trimax.raven.core.util.HandlingUtil;
 import io.github.trimax.raven.core.util.TryUtil;
 import lombok.extern.slf4j.Slf4j;
@@ -15,14 +13,15 @@ import lombok.extern.slf4j.Slf4j;
  * Encapsulates a TCP socket connection with object stream I/O.
  * Outgoing messages are queued and written by a {@link MessageWriter}, so the sender never waits for the
  * network. A full queue applies bounded back-pressure: send() waits up to the send timeout for space
- * and disconnects the peer if none frees up. Provides thread-safe send, blocking receive, and clean disconnect.
+ * and disconnects the peer if none frees up. Incoming messages are read and filtered by a {@link MessageReader}.
+ * Provides thread-safe send, blocking receive, and clean disconnect.
  */
 @Slf4j
 final class Connection {
 
     private final Socket socket;
     private final AtomicBoolean connected;
-    private final ObjectInputStream inputStream;
+    private final MessageReader reader;
     /** Package-private for tests only: lets them reach the writer thread. */
     final MessageWriter writer;
 
@@ -40,9 +39,7 @@ final class Connection {
         // The writer sends our stream header before we wait for the peer's; the other order would leave
         // both sides waiting for each other's header
         this.writer = new MessageWriter(socket.getOutputStream(), queueCapacity, sendTimeout, connected::get, this::disconnect);
-        this.inputStream = new ObjectInputStream(socket.getInputStream());
-
-        this.inputStream.setObjectInputFilter(MessageInputFilter.INSTANCE);
+        this.reader = new MessageReader(socket.getInputStream());
     }
 
     /**
@@ -103,12 +100,7 @@ final class Connection {
      */
     Message receive() {
         try {
-            final var object = inputStream.readObject();
-            if (object instanceof Message message)
-                return message;
-
-            log.warn("Received non-RavenMessage object: {}", object.getClass().getName());
-            return null;
+            return reader.read();
         } catch (final IOException | ClassNotFoundException ex) {
             // Close the socket now: a later disconnect() would see connected == false and skip it
             disconnect();
