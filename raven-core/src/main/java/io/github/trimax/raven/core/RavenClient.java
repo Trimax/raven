@@ -8,7 +8,6 @@ import io.github.trimax.raven.core.config.RavenClientConfiguration;
 import io.github.trimax.raven.core.util.HandlingUtil;
 import io.github.trimax.raven.core.util.InterceptorUtil;
 import io.github.trimax.raven.core.util.MeasurementUtil;
-import io.github.trimax.raven.core.util.TryUtil;
 import io.github.trimax.raven.core.validation.MessageValidator;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -33,14 +32,9 @@ public final class RavenClient {
     private Thread receiverThread;
 
     /**
-     * Socket of the connection attempt in progress, or {@code null}. Guarded by the monitor.
+     * The connection attempt in progress, aborted by {@link #disconnect()}. Guarded by the monitor.
      */
-    private Socket pendingSocket;
-
-    /**
-     * Incremented by {@link #disconnect()} so that an in-flight {@link #connect()} discards its result. Guarded by the monitor.
-     */
-    private long connectGeneration;
+    private final PendingConnect pendingConnect = new PendingConnect();
 
     public RavenClient(@NonNull final RavenClientConfiguration configuration) {
         configuration.validate();
@@ -56,43 +50,33 @@ public final class RavenClient {
      * {@link #disconnect()} aborts an attempt in progress.
      */
     public void connect() {
-        final Socket socket;
-        final long generation;
+        final PendingConnect.Attempt attempt;
         synchronized (this) {
-            if (isConnected() || pendingSocket != null)
-                return;
-
-            socket = new Socket();
-            pendingSocket = socket;
-            generation = connectGeneration;
+            attempt = isConnected() ? null : pendingConnect.begin();
         }
+        if (attempt == null)
+            return;
 
         final Connection newConnection;
         try {
-            newConnection = openConnection(socket);
+            newConnection = openConnection(attempt.socket());
         } catch (final IOException ex) {
-            synchronized (this) {
-                releasePendingSocket(socket);
-                if (generation != connectGeneration) {
-                    log.info("RavenClient connection attempt to {}:{} cancelled by disconnect", configuration.getHost(), configuration.getPort());
-                    return;
-                }
-            }
-
-            log.warn("RavenClient failed to connect to {}:{} - {}", configuration.getHost(), configuration.getPort(), ex.getMessage());
+            if (finishAttempt(attempt))
+                log.warn("RavenClient failed to connect to {}:{} - {}", configuration.getHost(), configuration.getPort(), ex.getMessage());
+            else
+                logCancelled();
             return;
         } catch (final RuntimeException ex) {
             // Otherwise every later connect() would see an attempt in progress and return
-            releasePendingSocket(socket);
+            finishAttempt(attempt);
             throw ex;
         }
 
         synchronized (this) {
-            releasePendingSocket(socket);
-            if (generation != connectGeneration) {
+            if (!pendingConnect.finish(attempt)) {
                 // disconnect() was called while the connection was being opened
                 newConnection.disconnect();
-                log.info("RavenClient connection attempt to {}:{} cancelled by disconnect", configuration.getHost(), configuration.getPort());
+                logCancelled();
                 return;
             }
 
@@ -111,10 +95,12 @@ public final class RavenClient {
         }
     }
 
-    private synchronized void releasePendingSocket(final Socket socket) {
-        // disconnect() may have cleared the field already and a newer attempt may own it now
-        if (pendingSocket == socket)
-            pendingSocket = null;
+    private synchronized boolean finishAttempt(final PendingConnect.Attempt attempt) {
+        return pendingConnect.finish(attempt);
+    }
+
+    private void logCancelled() {
+        log.info("RavenClient connection attempt to {}:{} cancelled by disconnect", configuration.getHost(), configuration.getPort());
     }
 
     private Connection openConnection(final Socket socket) throws IOException {
@@ -137,13 +123,7 @@ public final class RavenClient {
      * Disconnects from the server, aborting a connection attempt in progress. Safe to call multiple times.
      */
     public synchronized void disconnect() {
-        connectGeneration++;
-        if (pendingSocket != null) {
-            // Unblocks the connecting thread instead of letting it wait for the connect timeout
-            TryUtil.execute(pendingSocket::close);
-            pendingSocket = null;
-        }
-
+        pendingConnect.cancel();
         closeConnection();
     }
 
