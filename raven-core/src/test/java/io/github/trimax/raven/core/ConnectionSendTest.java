@@ -2,6 +2,7 @@ package io.github.trimax.raven.core;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.time.Duration;
@@ -26,7 +27,7 @@ class ConnectionSendTest {
         }
 
         Pair(final int clientQueueCapacity, final Duration clientSendTimeout) throws Exception {
-            listener = new ServerSocket(0);
+            listener = new ServerSocket(0, 0, InetAddress.getLoopbackAddress());
             final var accepted = CompletableFuture.supplyAsync(() -> {
                 try {
                     return TestConnections.open(listener.accept());

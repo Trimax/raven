@@ -55,13 +55,14 @@ public final class RavenServer {
      */
     public void start() {
         try {
-            final var socket = new ServerSocket(configuration.getPort());
+            // Backlog 0 keeps the JDK default; a null bind address listens on all local addresses
+            final var socket = new ServerSocket(configuration.getPort(), 0, configuration.getBindAddress());
             if (!serverSocket.compareAndSet(null, socket)) {
                 socket.close();
                 return;
             }
 
-            log.info("RavenServer started on port {}", socket.getLocalPort());
+            log.info("RavenServer started on {}:{}", socket.getInetAddress().getHostAddress(), socket.getLocalPort());
             acceptor.start(socket);
         } catch (final IOException ex) {
             log.error("Failed to start RavenServer on port {}: {}", configuration.getPort(), ex.getMessage());

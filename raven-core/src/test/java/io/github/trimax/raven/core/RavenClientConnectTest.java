@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.io.UncheckedIOException;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.time.Duration;
@@ -26,7 +27,7 @@ class RavenClientConnectTest {
     @Test
     void blockedConnectAttemptDoesNotBlockOtherCalls() throws Exception {
         // The server accepts the connection but never writes its stream header, so the handshake blocks
-        try (final var listener = new ServerSocket(0)) {
+        try (final var listener = new ServerSocket(0, 0, InetAddress.getLoopbackAddress())) {
             final var client = newClient(listener.getLocalPort(), Duration.ofSeconds(5), new AtomicInteger());
             final var accepted = acceptAsync(listener);
 
@@ -47,7 +48,7 @@ class RavenClientConnectTest {
 
     @Test
     void connectGivesUpAfterConfiguredTimeout() throws Exception {
-        try (final var listener = new ServerSocket(0)) {
+        try (final var listener = new ServerSocket(0, 0, InetAddress.getLoopbackAddress())) {
             final var connects = new AtomicInteger();
             final var client = newClient(listener.getLocalPort(), Duration.ofMillis(300), connects);
             final var accepted = acceptAsync(listener);
@@ -65,7 +66,7 @@ class RavenClientConnectTest {
 
     @Test
     void disconnectDuringConnectLeavesClientDisconnected() throws Exception {
-        try (final var listener = new ServerSocket(0)) {
+        try (final var listener = new ServerSocket(0, 0, InetAddress.getLoopbackAddress())) {
             final var connects = new AtomicInteger();
             final var client = newClient(listener.getLocalPort(), Duration.ofSeconds(5), connects);
             final var accepted = acceptAsync(listener);

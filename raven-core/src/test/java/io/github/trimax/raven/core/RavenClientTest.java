@@ -3,6 +3,7 @@ package io.github.trimax.raven.core;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.net.InetAddress;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -211,6 +212,7 @@ class RavenClientTest {
 
     private static RavenServer createServer(final ServerHandler handler) {
         final var config = RavenServerConfiguration.builder()
+                .bindAddress(InetAddress.getLoopbackAddress())
                 .port(0)
                 .handler(handler)
                 .build();

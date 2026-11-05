@@ -2,6 +2,7 @@ package io.github.trimax.raven.client;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.util.concurrent.TimeUnit;
 
@@ -19,7 +20,7 @@ class RavenClientAutoConfigurationTest {
     @Test
     void appliesConfiguredConnectTimeout() throws Exception {
         // The listener never accepts at application level, so only the connect timeout ends the handshake
-        try (final var listener = new ServerSocket(0)) {
+        try (final var listener = new ServerSocket(0, 0, InetAddress.getLoopbackAddress())) {
             final var configuration = new RavenClientAutoConfiguration("localhost", listener.getLocalPort(), "300ms", null, null);
             final var client = configuration.ravenClient(new ClientMessageRouter(), interceptors());
 

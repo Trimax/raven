@@ -3,6 +3,7 @@ package io.github.trimax.raven.core;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.ObjectOutputStream;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Date;
@@ -25,7 +26,7 @@ class DeserializationFilterTest {
         private final CompletableFuture<Connection> serverFuture;
 
         Pair() throws Exception {
-            listener = new ServerSocket(0);
+            listener = new ServerSocket(0, 0, InetAddress.getLoopbackAddress());
             serverFuture = CompletableFuture.supplyAsync(() -> {
                 try {
                     return TestConnections.open(listener.accept());

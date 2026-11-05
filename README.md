@@ -58,6 +58,8 @@ public class ServerApp { }
 Configure:
 ```properties
 raven.server.port=9090
+# Optional: listen on one address only, e.g. 127.0.0.1 (default: all local addresses)
+raven.server.bind-address=127.0.0.1
 # Optional: outgoing messages queued per client before send() applies back-pressure (default 1024)
 raven.server.send-queue-capacity=1024
 # Optional: how long send() waits for queue space before disconnecting a stalled client (default 5s)

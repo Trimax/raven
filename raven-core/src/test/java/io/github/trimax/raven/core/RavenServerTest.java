@@ -2,7 +2,16 @@ package io.github.trimax.raven.core;
 
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import java.io.IOException;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.NetworkInterface;
+import java.net.Socket;
+import java.net.SocketException;
+import java.util.Collections;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
@@ -21,6 +30,27 @@ class RavenServerTest {
     @Test
     void nullConfigurationThrowsNpe() {
         assertThrows(NullPointerException.class, () -> new RavenServer(null));
+    }
+
+    @Test
+    void listensOnlyOnTheBindAddress() throws IOException {
+        final var other = nonLoopbackAddress();
+        assumeTrue(other != null, "no non-loopback IPv4 address on this machine");
+
+        final var server = createServer(new NoOpServerHandler());
+        server.start();
+        try {
+            try (final var loopback = new Socket(InetAddress.getLoopbackAddress(), server.getPort())) {
+                assertTrue(loopback.isConnected());
+            }
+
+            // Bound to all addresses, this connect would succeed at once; here it is refused or, behind a firewall, times out
+            try (final var elsewhere = new Socket()) {
+                assertThrows(IOException.class, () -> elsewhere.connect(new InetSocketAddress(other, server.getPort()), 1_000));
+            }
+        } finally {
+            server.stop();
+        }
     }
 
     @Test
@@ -241,6 +271,7 @@ class RavenServerTest {
 
     private static RavenServer createServer(final ServerHandler handler) {
         return new RavenServer(RavenServerConfiguration.builder()
+                .bindAddress(InetAddress.getLoopbackAddress())
                 .port(0)
                 .handler(handler)
                 .build());
@@ -274,5 +305,17 @@ class RavenServerTest {
 
         @Override
         public void onMessage(final Message message) {}
+    }
+
+    private static InetAddress nonLoopbackAddress() throws SocketException {
+        for (final var networkInterface : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+            if (!networkInterface.isUp() || networkInterface.isLoopback())
+                continue;
+
+            for (final var address : Collections.list(networkInterface.getInetAddresses()))
+                if (address instanceof Inet4Address)
+                    return address;
+        }
+        return null;
     }
 }

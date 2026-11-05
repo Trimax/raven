@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.IOException;
 import java.io.ObjectOutputStream;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.time.Duration;
@@ -20,7 +21,7 @@ class ConnectionTest {
 
     @Test
     void newConnectionIsConnected() throws Exception {
-        try (final var serverSocket = new ServerSocket(0)) {
+        try (final var serverSocket = new ServerSocket(0, 0, InetAddress.getLoopbackAddress())) {
             final var port = serverSocket.getLocalPort();
             final var latch = new CountDownLatch(1);
 
@@ -47,7 +48,7 @@ class ConnectionTest {
     @Test
     void disconnectClosesConnection() throws Exception {
         // The peer is accepted on the test thread and kept open until the end, so setup cannot race
-        try (final var serverSocket = new ServerSocket(0);
+        try (final var serverSocket = new ServerSocket(0, 0, InetAddress.getLoopbackAddress());
              final var socket = new Socket("localhost", serverSocket.getLocalPort());
              final var peer = serverSocket.accept()) {
             new ObjectOutputStream(peer.getOutputStream()).flush();
@@ -63,7 +64,7 @@ class ConnectionTest {
     @Test
     void doubleDisconnectIsSafe() throws Exception {
         // The peer is accepted on the test thread and kept open until the end, so setup cannot race
-        try (final var serverSocket = new ServerSocket(0);
+        try (final var serverSocket = new ServerSocket(0, 0, InetAddress.getLoopbackAddress());
              final var socket = new Socket("localhost", serverSocket.getLocalPort());
              final var peer = serverSocket.accept()) {
             new ObjectOutputStream(peer.getOutputStream()).flush();
@@ -77,7 +78,7 @@ class ConnectionTest {
     @Test
     void sendAfterDisconnectDoesNotThrow() throws Exception {
         // The peer is accepted on the test thread and kept open until the end, so setup cannot race
-        try (final var serverSocket = new ServerSocket(0);
+        try (final var serverSocket = new ServerSocket(0, 0, InetAddress.getLoopbackAddress());
              final var socket = new Socket("localhost", serverSocket.getLocalPort());
              final var peer = serverSocket.accept()) {
             new ObjectOutputStream(peer.getOutputStream()).flush();
@@ -90,7 +91,7 @@ class ConnectionTest {
 
     @Test
     void peerCloseReleasesSocket() throws Exception {
-        try (final var serverSocket = new ServerSocket(0);
+        try (final var serverSocket = new ServerSocket(0, 0, InetAddress.getLoopbackAddress());
              final var socket = new Socket("localhost", serverSocket.getLocalPort())) {
             final var peer = serverSocket.accept();
             new ObjectOutputStream(peer.getOutputStream()).flush();
@@ -106,7 +107,7 @@ class ConnectionTest {
 
     @Test
     void peerCloseStopsWriterThread() throws Exception {
-        try (final var serverSocket = new ServerSocket(0);
+        try (final var serverSocket = new ServerSocket(0, 0, InetAddress.getLoopbackAddress());
              final var socket = new Socket("localhost", serverSocket.getLocalPort())) {
             final var peer = serverSocket.accept();
             new ObjectOutputStream(peer.getOutputStream()).flush();
@@ -122,7 +123,7 @@ class ConnectionTest {
 
     @Test
     void receiveReturnsNullForNonMessageObject() throws Exception {
-        try (final var serverSocket = new ServerSocket(0)) {
+        try (final var serverSocket = new ServerSocket(0, 0, InetAddress.getLoopbackAddress())) {
             final var port = serverSocket.getLocalPort();
             final var latch = new CountDownLatch(1);
 
@@ -152,7 +153,7 @@ class ConnectionTest {
 
     @Test
     void sendAndReceiveMessage() throws Exception {
-        try (final var serverSocket = new ServerSocket(0)) {
+        try (final var serverSocket = new ServerSocket(0, 0, InetAddress.getLoopbackAddress())) {
             final var port = serverSocket.getLocalPort();
             final var serverConnection = new AtomicReference<Connection>();
             final var latch = new CountDownLatch(1);

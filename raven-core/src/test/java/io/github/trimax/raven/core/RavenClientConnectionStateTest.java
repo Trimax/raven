@@ -3,6 +3,7 @@ package io.github.trimax.raven.core;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.net.InetAddress;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
@@ -20,6 +21,7 @@ class RavenClientConnectionStateTest {
     @Test
     void connectHandlerFailureLeavesClientDisconnected() throws Exception {
         final var server = new RavenServer(RavenServerConfiguration.builder()
+                .bindAddress(InetAddress.getLoopbackAddress())
                 .port(0)
                 .handler(new ServerHandler() {
                     @Override

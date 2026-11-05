@@ -1,5 +1,6 @@
 package io.github.trimax.raven.core.config;
 
+import java.net.InetAddress;
 import java.time.Duration;
 import java.util.List;
 
@@ -12,7 +13,7 @@ import lombok.experimental.SuperBuilder;
 
 /**
  * Configuration for {@link io.github.trimax.raven.core.RavenServer}.
- * Holds the handler, port, and an optional list of message interceptors.
+ * Holds the handler, port, optional bind address, and an optional list of message interceptors.
  */
 @Getter
 @SuperBuilder
@@ -20,6 +21,12 @@ public final class RavenServerConfiguration extends AbstractRavenConfiguration {
 
     @NonNull
     private final ServerHandler handler;
+
+    /**
+     * Local address to listen on, e.g. the loopback address or one network interface.
+     * {@code null} (the default) listens on all local addresses.
+     */
+    private final InetAddress bindAddress;
 
     /**
      * Interceptors invoked in list order on each incoming message before it reaches handlers.

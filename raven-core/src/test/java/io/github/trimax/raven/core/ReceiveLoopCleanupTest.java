@@ -3,6 +3,7 @@ package io.github.trimax.raven.core;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.net.InetAddress;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -22,6 +23,7 @@ class ReceiveLoopCleanupTest {
     void serverHandlerFailureDisconnectsClientAndNotifies() throws Exception {
         final var disconnects = new AtomicInteger();
         final var server = new RavenServer(RavenServerConfiguration.builder()
+                .bindAddress(InetAddress.getLoopbackAddress())
                 .port(0)
                 .handler(new ServerHandler() {
                     @Override
@@ -63,6 +65,7 @@ class ReceiveLoopCleanupTest {
     void clientHandlerFailureDisconnectsAndNotifies() throws Exception {
         final var disconnects = new AtomicInteger();
         final var server = new RavenServer(RavenServerConfiguration.builder()
+                .bindAddress(InetAddress.getLoopbackAddress())
                 .port(0)
                 .handler(new ServerHandler() {
                     @Override
