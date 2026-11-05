@@ -36,6 +36,12 @@ public final class RavenServer {
     private final Map<UUID, Client> clients = new ConcurrentHashMap<>();
     private final AtomicReference<ServerSocket> serverSocket = new AtomicReference<>();
 
+    // Sockets still in the handshake, closed by stop() so they do not linger until the handshake timeout
+    private final Set<Socket> handshakes = ConcurrentHashMap.newKeySet();
+
+    // Registered clients whose onConnect has not returned yet; stop() leaves their disconnect to the registering thread
+    private final Set<UUID> connecting = ConcurrentHashMap.newKeySet();
+
     public RavenServer(final RavenServerConfiguration configuration) {
         this.configuration = validate(configuration);
     }
@@ -69,9 +75,14 @@ public final class RavenServer {
 
         log.info("RavenServer stopping...");
 
+        handshakes.forEach(handshake -> TryUtil.execute(handshake::close));
+
         // Each client is removed from the registry before it is disconnected, so exactly one of stop() and
         // the client's own receive loop reports its disconnect
         for (final var id : clients.keySet()) {
+            if (connecting.contains(id))
+                continue;
+
             final var client = clients.remove(id);
             if (client != null)
                 disconnectClient(client);
@@ -184,7 +195,12 @@ public final class RavenServer {
      */
     private void acceptConnection(final Socket clientSocket) {
         final Client client;
+        handshakes.add(clientSocket);
         try {
+            // stop() closes tracked sockets after it marks the server stopped, so this re-check covers a late add
+            if (!isRunning())
+                throw new IOException("server stopped");
+
             clientSocket.setSoTimeout(toSocketTimeoutMillis(configuration.getHandshakeTimeout()));
             client = new Client(clientSocket);
             clientSocket.setSoTimeout(0);
@@ -193,22 +209,42 @@ public final class RavenServer {
                 log.error("Error setting up connection from {}: {}", clientSocket.getRemoteSocketAddress(), ex.getMessage());
             TryUtil.execute(clientSocket::close);
             return;
+        } finally {
+            handshakes.remove(clientSocket);
         }
 
+        connecting.add(client.getId());
         try {
             registerClient(client, clientSocket);
         } catch (final RuntimeException ex) {
             log.error("Handler failed on connect for {}: {}", clientSocket.getRemoteSocketAddress(), ex.getMessage(), ex);
             clients.remove(client.getId());
             client.disconnect();
+        } finally {
+            connecting.remove(client.getId());
         }
+
+        // stop() skipped this client while onConnect ran, so its disconnect is reported here
+        if (!isRunning() && clients.remove(client.getId()) != null)
+            disconnectClient(client);
     }
 
     private void registerClient(final Client client, final Socket clientSocket) {
         clients.put(client.getId(), client);
-        log.info("Client connected: {} ({})", client.getId(), clientSocket.getRemoteSocketAddress());
 
+        // A client whose handshake completed after stop() is dropped without ever being announced
+        if (!isRunning()) {
+            clients.remove(client.getId());
+            client.disconnect();
+            return;
+        }
+
+        log.info("Client connected: {} ({})", client.getId(), clientSocket.getRemoteSocketAddress());
         configuration.getHandler().onConnect(client);
+
+        // The receive loop would exit at once if stop() ran during onConnect; acceptConnection() reports that disconnect
+        if (!isRunning())
+            return;
 
         Thread.ofVirtual()
                 .name("raven-client-" + client.getId())
