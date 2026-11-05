@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.format.datetime.standard.DurationFormatterUtils;
 
 import io.github.trimax.raven.core.RavenClient;
 import io.github.trimax.raven.core.config.RavenClientConfiguration;
@@ -19,7 +20,8 @@ import lombok.extern.slf4j.Slf4j;
  * Creates a {@link RavenClient} bean configured from properties.
  * Connection is established after all beans are initialized to ensure handlers are registered.
  *
- * <p>Required properties: {@code raven.client.host}, {@code raven.client.port}
+ * <p>Required properties: {@code raven.client.host}, {@code raven.client.port}.
+ * Optional: {@code raven.client.connect-timeout}, e.g. {@code 5s} or {@code PT5S} (defaults to {@link RavenClientConfiguration}'s value).
  */
 @Slf4j
 @Configuration(proxyBeanMethods = false)
@@ -33,17 +35,28 @@ public final class RavenClientAutoConfiguration implements SmartInitializingSing
     @Value("${raven.client.port}")
     private final int port;
 
+    /**
+     * Parsed here rather than injected as a {@link java.time.Duration}: plain Spring, unlike Spring Boot,
+     * has no String-to-Duration conversion for {@code @Value}.
+     */
+    @Value("${raven.client.connect-timeout:#{null}}")
+    private final String connectTimeout;
+
     private RavenClient client;
 
     @Bean
     public RavenClient ravenClient(final ClientMessageRouter router,
                                    final ObjectProvider<ClientMessageInterceptor> interceptors) {
-        client = new RavenClient(RavenClientConfiguration.builder()
+        final var builder = RavenClientConfiguration.builder()
                 .host(host)
                 .port(port)
                 .handler(router)
-                .interceptors(interceptors.orderedStream().toList())
-                .build());
+                .interceptors(interceptors.orderedStream().toList());
+        // Unset keeps the core default instead of duplicating it here
+        if (connectTimeout != null)
+            builder.connectTimeout(DurationFormatterUtils.detectAndParse(connectTimeout));
+
+        client = new RavenClient(builder.build());
         return client;
     }
 
