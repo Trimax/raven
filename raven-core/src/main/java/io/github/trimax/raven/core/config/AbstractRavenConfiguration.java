@@ -32,6 +32,17 @@ abstract class AbstractRavenConfiguration {
     private final Duration sendTimeout = Duration.ofSeconds(5);
 
     /**
+     * How long an established connection may go without receiving anything before it is closed.
+     * {@link Duration#ZERO} (the default) disables the timeout. Otherwise it must be at least one millisecond and
+     * no larger than {@link Integer#MAX_VALUE} milliseconds (about 24.8 days).
+     *
+     * <p>There is no heartbeat: a peer that is healthy but sends nothing for this long is disconnected too.
+     */
+    @NonNull
+    @Builder.Default
+    private final Duration idleTimeout = Duration.ZERO;
+
+    /**
      * Checks the settings shared by server and client, then the subclass's own settings.
      *
      * @throws IllegalArgumentException if a setting is out of range
@@ -42,6 +53,17 @@ abstract class AbstractRavenConfiguration {
 
         if (sendTimeout.isNegative())
             throw new IllegalArgumentException("sendTimeout must not be negative, got " + sendTimeout);
+
+        // Used as a socket timeout, where 0 means "wait forever": a positive value that truncates to 0 ms would
+        // silently disable it
+        if (idleTimeout.isNegative())
+            throw new IllegalArgumentException("idleTimeout must not be negative, got " + idleTimeout);
+
+        if (idleTimeout.isPositive() && idleTimeout.toMillis() < 1)
+            throw new IllegalArgumentException("idleTimeout must be zero or at least 1ms, got " + idleTimeout);
+
+        if (idleTimeout.toMillis() > Integer.MAX_VALUE)
+            throw new IllegalArgumentException("idleTimeout is too large: " + idleTimeout);
 
         validateSpecific();
     }

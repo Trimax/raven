@@ -26,7 +26,9 @@ import lombok.extern.slf4j.Slf4j;
  * <p>Required property: {@code raven.server.port}.
  * Optional: {@code raven.server.bind-address}, a host name or IP address to listen on (defaults to all local addresses),
  * {@code raven.server.send-queue-capacity}, {@code raven.server.send-timeout}, e.g. {@code 5s} or {@code PT5S},
- * and {@code raven.server.max-connections} (all but the bind address default to {@link RavenServerConfiguration}'s values).
+ * {@code raven.server.max-connections}, and {@code raven.server.idle-timeout}, after which a client that sent nothing
+ * is disconnected; there is no heartbeat, so this also disconnects healthy but silent clients (all but the bind
+ * address default to {@link RavenServerConfiguration}'s values; the idle timeout is off by default).
  */
 @Slf4j
 @Configuration(proxyBeanMethods = false)
@@ -53,6 +55,9 @@ public final class RavenServerAutoConfiguration implements SmartInitializingSing
     @Value("${raven.server.max-connections:#{null}}")
     private final Integer maxConnections;
 
+    @Value("${raven.server.idle-timeout:#{null}}")
+    private final String idleTimeout;
+
     private RavenServer server;
 
     @Bean
@@ -70,6 +75,8 @@ public final class RavenServerAutoConfiguration implements SmartInitializingSing
             builder.sendTimeout(DurationFormatterUtils.detectAndParse(sendTimeout));
         if (maxConnections != null)
             builder.maxConnections(maxConnections);
+        if (idleTimeout != null)
+            builder.idleTimeout(DurationFormatterUtils.detectAndParse(idleTimeout));
 
         server = new RavenServer(builder.build());
         return server;

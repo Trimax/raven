@@ -66,6 +66,9 @@ raven.server.send-queue-capacity=1024
 raven.server.send-timeout=5s
 # Optional: connections served at once, handshakes included; further connections are closed at once (default 1024)
 raven.server.max-connections=1024
+# Optional: disconnect a client that sends nothing for this long (default 0 = off). There is no heartbeat,
+# so a healthy client that stays silent this long is disconnected too
+raven.server.idle-timeout=5m
 ```
 
 Write a handler:
@@ -115,6 +118,9 @@ raven.client.connect-timeout=10s
 raven.client.send-queue-capacity=1024
 # Optional: how long send() waits for queue space before disconnecting (default 5s)
 raven.client.send-timeout=5s
+# Optional: disconnect if the server sends nothing for this long (default 0 = off). There is no heartbeat,
+# so a healthy but silent connection is closed too
+raven.client.idle-timeout=5m
 ```
 
 Write a handler:

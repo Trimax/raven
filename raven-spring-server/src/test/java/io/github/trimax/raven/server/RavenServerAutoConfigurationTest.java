@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.net.InetAddress;
 import java.net.Socket;
 
@@ -21,7 +23,7 @@ class RavenServerAutoConfigurationTest {
 
     @Test
     void appliesConfiguredBindAddress() throws Exception {
-        final var server = new RavenServerAutoConfiguration(0, "127.0.0.1", null, null, null).ravenServer(new ServerMessageRouter(), interceptors());
+        final var server = new RavenServerAutoConfiguration(0, "127.0.0.1", null, null, null, null).ravenServer(new ServerMessageRouter(), interceptors());
         server.start();
         try (final var socket = new Socket(InetAddress.getLoopbackAddress(), server.getPort())) {
             assertTrue(socket.isConnected());
@@ -32,14 +34,14 @@ class RavenServerAutoConfigurationTest {
 
     @Test
     void acceptsMissingBindAddress() {
-        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null);
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null);
 
         assertDoesNotThrow(() -> configuration.ravenServer(new ServerMessageRouter(), interceptors()));
     }
 
     @Test
     void rejectsUnresolvableBindAddress() {
-        final var configuration = new RavenServerAutoConfiguration(0, "no such host.invalid", null, null, null);
+        final var configuration = new RavenServerAutoConfiguration(0, "no such host.invalid", null, null, null, null);
 
         final var ex = assertThrows(IllegalArgumentException.class,
                 () -> configuration.ravenServer(new ServerMessageRouter(), interceptors()));
@@ -48,7 +50,31 @@ class RavenServerAutoConfigurationTest {
 
     @Test
     void rejectsZeroMaxConnections() {
-        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, 0);
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, 0, null);
+
+        assertThrows(IllegalArgumentException.class, () -> configuration.ravenServer(new ServerMessageRouter(), interceptors()));
+    }
+
+    @Test
+    void appliesConfiguredIdleTimeout() throws Exception {
+        final var server = new RavenServerAutoConfiguration(0, "127.0.0.1", null, null, null, "300ms")
+                .ravenServer(new ServerMessageRouter(), interceptors());
+        server.start();
+        try (final var socket = new Socket(InetAddress.getLoopbackAddress(), server.getPort())) {
+            // Completes the handshake, then stays silent
+            new ObjectOutputStream(socket.getOutputStream()).flush();
+            new ObjectInputStream(socket.getInputStream());
+            socket.setSoTimeout(3_000);
+
+            assertEquals(-1, socket.getInputStream().read(), "the server must close the idle connection");
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    void rejectsMalformedIdleTimeout() {
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, "never");
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenServer(new ServerMessageRouter(), interceptors()));
     }

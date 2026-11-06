@@ -186,7 +186,7 @@ final class ConnectionAcceptor {
             if (!running.getAsBoolean())
                 throw new IOException("server stopped");
 
-            connection = Connection.open(clientSocket, configuration.getHandshakeTimeout(),
+            connection = Connection.open(clientSocket, configuration.getHandshakeTimeout(), configuration.getIdleTimeout(),
                     configuration.getSendQueueCapacity(), configuration.getSendTimeout(), releasePermit);
         } catch (final IOException ex) {
             if (running.getAsBoolean())
