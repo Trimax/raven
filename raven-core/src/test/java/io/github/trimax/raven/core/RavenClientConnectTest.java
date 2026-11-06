@@ -19,7 +19,7 @@ import io.github.trimax.raven.core.config.RavenClientConfiguration;
 import io.github.trimax.raven.core.handler.ClientHandler;
 
 /**
- * Verifies that a blocked connection attempt does not hold the client's monitor,
+ * Verifies that a blocked connection attempt does not hold the client's lock,
  * is bounded by the connect timeout, and is aborted by {@link RavenClient#disconnect()}.
  */
 class RavenClientConnectTest {
