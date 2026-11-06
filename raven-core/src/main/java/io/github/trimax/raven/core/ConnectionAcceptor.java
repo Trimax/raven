@@ -14,6 +14,7 @@ import java.util.function.BooleanSupplier;
 
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.util.TryUtil;
+import io.github.trimax.raven.core.util.retry.ExponentialRetryStrategy;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -32,6 +33,9 @@ final class ConnectionAcceptor {
 
     /** While the connection limit stays reached, at most one drop per interval is logged at WARN. */
     private static final Duration LIMIT_WARNING_INTERVAL = Duration.ofSeconds(10);
+
+    /** Pause after each failed accept(), so a persistent failure such as running out of file descriptors does not spin. */
+    private static final ExponentialRetryStrategy ACCEPT_BACKOFF = new ExponentialRetryStrategy(10, 1000);
 
     /** Already validated by the owning server: the handshake timeout fits into an {@code int} of milliseconds. */
     private final RavenServerConfiguration configuration;
@@ -78,6 +82,9 @@ final class ConnectionAcceptor {
     }
 
     private void acceptLoop(final ServerSocket serverSocket) {
+        // Consecutive failed accept() calls; reset by the next successful one
+        int failures = 0;
+
         // running alone is not enough: after stop() and start() it is true again for the new socket,
         // and accept() on this closed socket would fail at once, forever
         while (running.getAsBoolean() && !serverSocket.isClosed()) {
@@ -85,11 +92,23 @@ final class ConnectionAcceptor {
             try {
                 clientSocket = serverSocket.accept();
             } catch (final IOException ex) {
-                if (serverSocket.isClosed())
+                if (serverSocket.isClosed() || !running.getAsBoolean())
                     break;
-                if (running.getAsBoolean())
-                    log.error("Error accepting connection: {}", ex.getMessage());
+
+                failures++;
+                if (failures == 1)
+                    log.error("Error accepting connection, backing off: {}", ex.getMessage());
+                else
+                    log.debug("Error accepting connection ({} in a row): {}", failures, ex.getMessage());
+
+                if (!backOff(failures))
+                    break;
                 continue;
+            }
+
+            if (failures > 0) {
+                log.info("Accepting connections again after {} failures", failures);
+                failures = 0;
             }
 
             if (!permits.tryAcquire()) {
@@ -100,6 +119,22 @@ final class ConnectionAcceptor {
             // The handshake blocks on the peer's stream header, so it must not run on the accept thread
             final var releasePermit = releaseOnce();
             Thread.ofVirtual().name("raven-handshake").start(() -> handshake(clientSocket, releasePermit));
+        }
+    }
+
+    /**
+     * Sleeps before the next accept() attempt. Closing the socket does not wake the sleep, but the loop checks
+     * the socket right after it, so a stop ends the loop within one delay (at most a second).
+     *
+     * @return {@code false} if the accept thread was interrupted and must end
+     */
+    private static boolean backOff(final int failures) {
+        try {
+            Thread.sleep(ACCEPT_BACKOFF.getDelay(failures));
+            return true;
+        } catch (final InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 
