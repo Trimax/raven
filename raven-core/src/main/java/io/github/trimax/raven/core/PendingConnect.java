@@ -6,9 +6,9 @@ import io.github.trimax.raven.core.util.TryUtil;
 
 /**
  * The connection attempt of a {@link RavenClient} that is in progress, if any. Lets
- * {@link RavenClient#disconnect()} abort an attempt whose network I/O runs outside the client's monitor.
+ * {@link RavenClient#disconnect()} abort an attempt whose network I/O runs outside the client's lock.
  *
- * <p>Not thread-safe: every method must be called while holding the owning client's monitor.
+ * <p>Not thread-safe: every method must be called while holding the owning client's lock.
  */
 final class PendingConnect {
 

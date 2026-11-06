@@ -16,7 +16,11 @@ final class MessageReader {
 
     private final ObjectInputStream inputStream;
 
-    /** This stream's own filter: its limits are tracked per message, so it cannot be shared between streams. */
+    /**
+     * Kept as a field because {@link #read()} calls {@link MessageInputFilter#startMessage()} before every
+     * {@code readObject}, restarting the per-message limits. Its limits are tracked per message, so each stream
+     * needs its own filter.
+     */
     private final MessageInputFilter filter = new MessageInputFilter();
 
     /**
