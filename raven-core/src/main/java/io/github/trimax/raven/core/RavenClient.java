@@ -165,9 +165,12 @@ public final class RavenClient {
             if (!announce(current))
                 return;
 
+            final var invalidMessages = new InvalidMessageLog("the server");
             try {
-                ReceiveLoop.run(current.connection(), () -> true, this::deliver, () -> detach(current));
+                ReceiveLoop.run(current.connection(), () -> true, message -> deliver(message, invalidMessages),
+                        () -> detach(current));
             } finally {
+                invalidMessages.summarize();
                 // Even if the loop throws (e.g. a failing validator), every announced session reports its end once
                 log.info("RavenClient disconnected");
                 HandlingUtil.callHandler(configuration.getHandler()::onDisconnect, () -> "on disconnect");
@@ -289,10 +292,10 @@ public final class RavenClient {
      *
      * @return {@code false} if the handler failed and the session must end
      */
-    private boolean deliver(final Message message) {
+    private boolean deliver(final Message message, final InvalidMessageLog invalidMessages) {
         final var violations = MessageValidator.validate(message);
         if (!violations.isEmpty()) {
-            log.warn("Received invalid {}: {}", message.getClass().getSimpleName(), violations);
+            invalidMessages.log(message, violations);
             return true;
         }
 
