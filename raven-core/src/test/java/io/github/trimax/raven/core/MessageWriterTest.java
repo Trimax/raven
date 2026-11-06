@@ -6,11 +6,14 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.OutputStream;
+import java.io.Serial;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -86,6 +89,94 @@ class MessageWriterTest {
 
         assertTrue(writer.thread.join(Duration.ofSeconds(5)), "writer thread must end after a write failure");
         assertEquals(1, failures.get());
+    }
+
+    @Test
+    void stopReleasesSendersWaitingForSpace() throws Exception {
+        final var output = new BlockingOutputStream();
+        final var connected = new AtomicBoolean(true);
+        final var writer = new MessageWriter(output, 1, Duration.ofSeconds(30), connected::get, () -> { });
+        output.block();
+        writer.start();
+
+        // The first message blocks the writer thread mid-write, the second fills the queue
+        assertTrue(writer.offer(new TestMessage("in flight")));
+        await().atMost(5, TimeUnit.SECONDS).until(output::isBlocked);
+        assertTrue(writer.offer(new TestMessage("queued")));
+
+        // More waiting senders than the queue has room for
+        final var senders = new ArrayList<Thread>();
+        for (int i = 0; i < 3; i++)
+            senders.add(Thread.ofPlatform().start(() -> writer.offer(new TestMessage("waiting"))));
+        await().atMost(5, TimeUnit.SECONDS)
+                .until(() -> senders.stream().allMatch(sender -> sender.getState() == Thread.State.TIMED_WAITING));
+
+        connected.set(false);
+        writer.stop();
+
+        for (final var sender : senders)
+            assertTrue(sender.join(Duration.ofSeconds(1)), "a sender waiting for space must return once the writer stops");
+        output.release();
+    }
+
+    @Test
+    void runtimeExceptionFromWriteObjectCallsOnFailure() throws Exception {
+        final var failures = new AtomicInteger();
+        final var writer = new MessageWriter(new ByteArrayOutputStream(),
+                TestConnections.QUEUE_CAPACITY, TestConnections.SEND_TIMEOUT, () -> true, failures::incrementAndGet);
+        writer.start();
+
+        writer.offer(new ThrowingMessage(new IllegalStateException("simulated writeObject failure")));
+
+        assertTrue(writer.thread.join(Duration.ofSeconds(5)), "writer thread must end after writeObject throws");
+        assertEquals(1, failures.get());
+    }
+
+    @Test
+    void errorFromWriteObjectStillCallsOnFailure() throws Exception {
+        final var failures = new AtomicInteger();
+        final var writer = new MessageWriter(new ByteArrayOutputStream(),
+                TestConnections.QUEUE_CAPACITY, TestConnections.SEND_TIMEOUT, () -> true, failures::incrementAndGet);
+        writer.start();
+
+        writer.offer(new ThrowingMessage(new SimulatedError()));
+
+        assertTrue(writer.thread.join(Duration.ofSeconds(5)), "writer thread must end after writeObject throws an Error");
+        assertEquals(1, failures.get());
+    }
+
+    /** A message whose serialization throws the given exception. */
+    private static final class ThrowingMessage extends Message {
+        private final transient RuntimeException runtimeException;
+        private final transient Error error;
+
+        ThrowingMessage(final RuntimeException runtimeException) {
+            this.runtimeException = runtimeException;
+            this.error = null;
+        }
+
+        ThrowingMessage(final Error error) {
+            this.runtimeException = null;
+            this.error = error;
+        }
+
+        @Serial
+        private void writeObject(final ObjectOutputStream ignored) {
+            if (error != null)
+                throw error;
+            throw runtimeException;
+        }
+    }
+
+    /** Thrown by a test on purpose; never a real failure. */
+    private static final class SimulatedError extends Error {
+        @Serial
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public synchronized Throwable fillInStackTrace() {
+            return this;
+        }
     }
 
     /** An output stream whose writes block once {@link #block()} has been called, until {@link #release()}. */

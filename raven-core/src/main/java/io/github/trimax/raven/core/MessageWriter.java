@@ -60,10 +60,11 @@ final class MessageWriter {
     }
 
     /**
-     * Stops the writer thread. Messages still queued are dropped.
+     * Stops the writer thread. Messages still queued are dropped, which also wakes senders waiting for space.
      */
     void stop() {
         thread.interrupt();
+        outbox.clear();
     }
 
     /**
@@ -75,7 +76,11 @@ final class MessageWriter {
      */
     boolean offer(final Message message) {
         try {
-            return outbox.offer(message, sendTimeout.toMillis(), TimeUnit.MILLISECONDS);
+            final var queued = outbox.offer(message, sendTimeout.toMillis(), TimeUnit.MILLISECONDS);
+            // A sender woken by stop() takes one freed slot; clearing again wakes the next waiting sender too
+            if (queued && !connected.getAsBoolean())
+                outbox.clear();
+            return queued;
         } catch (final InterruptedException ex) {
             log.debug("Interrupted while queueing message, dropping it");
             Thread.currentThread().interrupt();
@@ -100,6 +105,14 @@ final class MessageWriter {
             else
                 log.debug("Writer stopped by disconnect: {}", ex.getMessage());
             onFailure.run();
+        } catch (final RuntimeException ex) {
+            // E.g. a message's own writeObject() threw; the stream may hold a partial object, so it cannot be reused
+            log.warn("Failed to send message: {}", ex.toString(), ex);
+            onFailure.run();
+        } catch (final Error error) {
+            // Not handled here, but the connection must not stay open without a writer
+            onFailure.run();
+            throw error;
         }
     }
 }

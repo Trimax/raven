@@ -1,5 +1,6 @@
 package io.github.trimax.raven.core;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.net.InetAddress;
@@ -10,6 +11,11 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
+
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 /**
  * Verifies the asynchronous, bounded send path of {@link Connection}.
@@ -100,6 +106,31 @@ class ConnectionSendTest {
 
             assertFalse(pair.client.isConnected(), "a peer that stops reading must be disconnected");
             assertTrue(pair.client.writer.thread.join(Duration.ofSeconds(5)), "writer thread must terminate");
+        }
+    }
+
+    @Test
+    void disconnectReleasesBlockedSenderWithoutStallWarning() throws Exception {
+        final var logger = (Logger) LoggerFactory.getLogger(Connection.class);
+        final var appender = new ListAppender<ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        try (final var pair = new Pair(1, Duration.ofSeconds(30))) {
+            // The server side never calls receive(), so the writer stalls and send() ends up waiting for space
+            final var payload = "x".repeat(256 * 1024);
+            final var sender = Thread.ofPlatform().start(() -> {
+                while (pair.client.isConnected())
+                    pair.client.send(new TestMessage(payload));
+            });
+            await().atMost(10, TimeUnit.SECONDS).until(() -> sender.getState() == Thread.State.TIMED_WAITING);
+
+            pair.client.disconnect();
+
+            assertTrue(sender.join(Duration.ofSeconds(1)), "a sender waiting for space must return once the connection closes");
+            assertTrue(appender.list.stream().noneMatch(event -> event.getFormattedMessage().contains("stalled")),
+                    "a closed connection must not be reported as a stalled peer");
+        } finally {
+            logger.detachAppender(appender);
         }
     }
 }

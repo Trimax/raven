@@ -100,7 +100,8 @@ final class Connection {
      * {@link #disconnect()} are dropped.
      */
     void send(final Message message) {
-        if (connected.get() && !writer.offer(message)) {
+        // A connection closed while the sender waited is not a stalled peer, so it is not reported as one
+        if (connected.get() && !writer.offer(message) && connected.get()) {
             log.warn("Send queue full for {}, disconnecting stalled peer", writer.getSendTimeout());
             disconnect();
         }
