@@ -13,7 +13,7 @@ import lombok.experimental.SuperBuilder;
 
 /**
  * Configuration for {@link io.github.trimax.raven.core.RavenServer}.
- * Holds the handler, port, optional bind address, and an optional list of message interceptors.
+ * Holds the handler, port, optional bind address, connection limit, and an optional list of message interceptors.
  */
 @Getter
 @SuperBuilder
@@ -44,6 +44,13 @@ public final class RavenServerConfiguration extends AbstractRavenConfiguration {
     @Builder.Default
     private final Duration handshakeTimeout = Duration.ofSeconds(5);
 
+    /**
+     * Maximum number of connections served at once, counting both connections still in the handshake and
+     * established sessions. A connection accepted beyond the limit is closed at once. Must be at least 1.
+     */
+    @Builder.Default
+    private final int maxConnections = 1024;
+
     @Override
     void validateSpecific() {
         // A zero socket timeout means "wait forever", so a timeout that truncates to 0 ms would disable the protection
@@ -53,5 +60,8 @@ public final class RavenServerConfiguration extends AbstractRavenConfiguration {
 
         if (timeout.toMillis() > Integer.MAX_VALUE)
             throw new IllegalArgumentException("handshakeTimeout is too large: " + timeout);
+
+        if (maxConnections < 1)
+            throw new IllegalArgumentException("maxConnections must be at least 1, got " + maxConnections);
     }
 }

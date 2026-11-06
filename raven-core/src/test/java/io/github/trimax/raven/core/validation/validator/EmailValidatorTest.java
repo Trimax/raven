@@ -41,6 +41,12 @@ class EmailValidatorTest {
     }
 
     @Test
+    void messageGivesLengthNotValue() {
+        final var result = validator.validate("email", "secret-value", getAnnotation());
+        assertEquals("field 'email' must be a valid email address, got a string of length 12", result.message());
+    }
+
+    @Test
     void invalidEmailNoDomain() {
         final var result = validator.validate("email", "user@", getAnnotation());
         assertNotNull(result);

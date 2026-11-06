@@ -29,6 +29,12 @@ class MatchesValidatorTest {
     }
 
     @Test
+    void messageGivesLengthNotValue() {
+        final var result = validator.validate("code", "SECRET", getAnnotation());
+        assertEquals("field 'code' must match pattern '^[a-z]+$', got a string of length 6", result.message());
+    }
+
+    @Test
     void invalidEmptyString() {
         final var result = validator.validate("code", "", getAnnotation());
         assertNotNull(result);

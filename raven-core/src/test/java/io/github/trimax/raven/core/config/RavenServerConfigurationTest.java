@@ -1,6 +1,7 @@
 package io.github.trimax.raven.core.config;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -65,6 +66,50 @@ class RavenServerConfigurationTest {
     void rejectsHandshakeTimeoutLargerThanSocketTimeoutRange() {
         assertThrows(IllegalArgumentException.class,
                 () -> configuration(Duration.ofMillis(Integer.MAX_VALUE + 1L)).validate());
+    }
+
+    @Test
+    void acceptsOneConnection() {
+        assertDoesNotThrow(() -> RavenServerConfiguration.builder().port(0).handler(NOOP).maxConnections(1).build().validate());
+    }
+
+    @Test
+    void rejectsZeroMaxConnections() {
+        assertThrows(IllegalArgumentException.class,
+                () -> RavenServerConfiguration.builder().port(0).handler(NOOP).maxConnections(0).build().validate());
+    }
+
+    @Test
+    void idleTimeoutIsOffByDefault() {
+        assertEquals(Duration.ZERO, configuration(Duration.ofSeconds(5)).getIdleTimeout());
+    }
+
+    @Test
+    void acceptsOneMillisecondIdleTimeout() {
+        assertDoesNotThrow(() -> idleTimeout(Duration.ofMillis(1)).validate());
+    }
+
+    @Test
+    void rejectsNegativeIdleTimeout() {
+        assertThrows(IllegalArgumentException.class, () -> idleTimeout(Duration.ofMillis(-1)).validate());
+    }
+
+    @Test
+    void rejectsIdleTimeoutThatTruncatesToZero() {
+        assertThrows(IllegalArgumentException.class, () -> idleTimeout(Duration.ofNanos(500_000)).validate());
+    }
+
+    @Test
+    void rejectsIdleTimeoutLargerThanSocketTimeoutRange() {
+        assertThrows(IllegalArgumentException.class, () -> idleTimeout(Duration.ofMillis(Integer.MAX_VALUE + 1L)).validate());
+    }
+
+    private static RavenServerConfiguration idleTimeout(final Duration idleTimeout) {
+        return RavenServerConfiguration.builder()
+                .port(0)
+                .handler(NOOP)
+                .idleTimeout(idleTimeout)
+                .build();
     }
 
     private static RavenServerConfiguration configuration(final Duration handshakeTimeout) {

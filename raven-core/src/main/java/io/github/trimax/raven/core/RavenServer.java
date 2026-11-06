@@ -170,6 +170,14 @@ public final class RavenServer {
     }
 
     /**
+     * Returns the number of connections that can still be accepted before the connection limit is reached.
+     * Package-private for tests only.
+     */
+    int availableConnections() {
+        return acceptor.availablePermits();
+    }
+
+    /**
      * Called on the handshake thread once a connection is established. Opens the client's session and starts
      * its receive loop.
      */
@@ -177,10 +185,14 @@ public final class RavenServer {
         if (!sessions.open(socket, client))
             return;
 
+        final var invalidMessages = new InvalidMessageLog(client.getId().toString());
         Thread.ofVirtual()
                 .name("raven-client-" + client.getId())
                 .start(() -> ReceiveLoop.run(client.connection(), this::isRunning,
-                        message -> deliver(client, message), () -> sessions.close(client)));
+                        message -> deliver(client, message, invalidMessages), () -> {
+                            invalidMessages.summarize();
+                            sessions.close(client);
+                        }));
     }
 
     /**
@@ -188,10 +200,10 @@ public final class RavenServer {
      *
      * @return {@code false} if the handler failed and the session must end
      */
-    private boolean deliver(final Client client, final Message message) {
+    private boolean deliver(final Client client, final Message message, final InvalidMessageLog invalidMessages) {
         final var violations = MessageValidator.validate(message);
         if (!violations.isEmpty()) {
-            log.warn("Received invalid {} from {}: {}", message.getClass().getSimpleName(), client.getId(), violations);
+            invalidMessages.log(message, violations);
             return true;
         }
 
