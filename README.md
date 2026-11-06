@@ -64,6 +64,8 @@ raven.server.bind-address=127.0.0.1
 raven.server.send-queue-capacity=1024
 # Optional: how long send() waits for queue space before disconnecting a stalled client (default 5s)
 raven.server.send-timeout=5s
+# Optional: how long a new connection may take to complete the handshake before it is dropped (default 5s)
+raven.server.handshake-timeout=5s
 # Optional: connections served at once, handshakes included; further connections are closed at once (default 1024)
 raven.server.max-connections=1024
 # Optional: disconnect a client that sends nothing for this long (default 0 = off). There is no heartbeat,
