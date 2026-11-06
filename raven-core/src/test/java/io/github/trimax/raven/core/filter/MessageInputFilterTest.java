@@ -7,6 +7,7 @@ import java.io.ObjectInputFilter.Status;
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -18,6 +19,8 @@ import io.github.trimax.raven.core.Message;
  * Unit tests for {@link MessageInputFilter}: which classes may be deserialized and the structural limits.
  */
 class MessageInputFilterTest {
+
+    private final MessageInputFilter filter = new MessageInputFilter();
 
     static final class PingMessage extends Message {
     }
@@ -58,35 +61,81 @@ class MessageInputFilterTest {
 
     @Test
     void leavesStructuralChecksWithoutClassUndecided() {
-        assertEquals(Status.UNDECIDED, MessageInputFilter.INSTANCE.checkInput(info(null, 1, 1, -1)));
+        assertEquals(Status.UNDECIDED, filter.checkInput(info(null, 1, 1, -1)));
     }
 
     @Test
     void rejectsTooDeepGraphs() {
-        assertEquals(Status.REJECTED, MessageInputFilter.INSTANCE.checkInput(
+        assertEquals(Status.REJECTED, filter.checkInput(
                 info(String.class, MessageInputFilter.MAX_DEPTH + 1, 1, -1)));
     }
 
     @Test
-    void rejectsTooManyReferences() {
-        assertEquals(Status.REJECTED, MessageInputFilter.INSTANCE.checkInput(
-                info(String.class, 1, MessageInputFilter.MAX_REFERENCES + 1, -1)));
+    void rejectsTooManyReferencesInOneMessage() {
+        filter.startMessage();
+        assertEquals(Status.ALLOWED, filter.checkInput(info(String.class, 1, 1, -1)));
+        assertEquals(Status.REJECTED, filter.checkInput(info(String.class, 1, 2 + MessageInputFilter.MAX_REFERENCES, -1)));
+    }
+
+    @Test
+    void allowsTheInternalArraysOfAllowedCollections() {
+        assertEquals(Status.ALLOWED, check(Object[].class));
+        assertEquals(Status.ALLOWED, check(Map.Entry[].class));
+    }
+
+    @Test
+    void allowsTheSuperclassOfTheBoxedNumbers() {
+        assertEquals(Status.ALLOWED, check(Number.class));
+    }
+
+    @Test
+    void stillRejectsArraysOfOtherClasses() {
+        assertEquals(Status.REJECTED, check(Thread[].class));
+    }
+
+    @Test
+    void countsReferencesPerMessageNotPerStream() {
+        // The stream's reference counter keeps growing across messages; each message gets its own budget
+        filter.startMessage();
+        assertEquals(Status.ALLOWED, filter.checkInput(info(String.class, 1, 10, -1)));
+        filter.startMessage();
+        assertEquals(Status.ALLOWED, filter.checkInput(info(String.class, 1, 10 + MessageInputFilter.MAX_REFERENCES, -1)));
+        assertEquals(Status.REJECTED, filter.checkInput(
+                info(String.class, 1, 10 + 2 * MessageInputFilter.MAX_REFERENCES + 1, -1)));
+    }
+
+    @Test
+    void sumsArrayElementsAcrossTheArraysOfOneMessage() {
+        // Nested arrays are allocated level by level before their data arrives, so the budget is shared
+        final var half = MessageInputFilter.MAX_ARRAY_ELEMENTS / 2;
+        filter.startMessage();
+        assertEquals(Status.ALLOWED, filter.checkInput(info(long[][].class, 1, 1, half)));
+        assertEquals(Status.ALLOWED, filter.checkInput(info(long[].class, 2, 2, half)));
+        assertEquals(Status.REJECTED, filter.checkInput(info(long[].class, 2, 3, 1)));
+    }
+
+    @Test
+    void resetsTheArrayBudgetForTheNextMessage() {
+        filter.startMessage();
+        assertEquals(Status.ALLOWED, filter.checkInput(info(byte[].class, 1, 1, MessageInputFilter.MAX_ARRAY_ELEMENTS)));
+        filter.startMessage();
+        assertEquals(Status.ALLOWED, filter.checkInput(info(byte[].class, 1, 2, MessageInputFilter.MAX_ARRAY_ELEMENTS)));
     }
 
     @Test
     void rejectsTooLongArrays() {
-        assertEquals(Status.REJECTED, MessageInputFilter.INSTANCE.checkInput(
-                info(byte[].class, 1, 1, MessageInputFilter.MAX_ARRAY_LENGTH + 1)));
+        assertEquals(Status.REJECTED, filter.checkInput(
+                info(byte[].class, 1, 1, MessageInputFilter.MAX_ARRAY_ELEMENTS + 1)));
     }
 
     @Test
     void allowsGraphsAtTheLimits() {
-        assertEquals(Status.ALLOWED, MessageInputFilter.INSTANCE.checkInput(info(byte[].class,
-                MessageInputFilter.MAX_DEPTH, MessageInputFilter.MAX_REFERENCES, MessageInputFilter.MAX_ARRAY_LENGTH)));
+        assertEquals(Status.ALLOWED, filter.checkInput(info(byte[].class,
+                MessageInputFilter.MAX_DEPTH, MessageInputFilter.MAX_REFERENCES, MessageInputFilter.MAX_ARRAY_ELEMENTS)));
     }
 
-    private static Status check(final Class<?> type) {
-        return MessageInputFilter.INSTANCE.checkInput(info(type, 1, 1, -1));
+    private Status check(final Class<?> type) {
+        return filter.checkInput(info(type, 1, 1, -1));
     }
 
     private static FilterInfo info(final Class<?> type, final long depth, final long references, final long arrayLength) {

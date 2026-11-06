@@ -68,7 +68,7 @@ public final class StringUtil {
      * Returns {@code true} if the string is not null and its length is between
      * {@code min} and {@code max} inclusive.
      */
-    public boolean hasLengthBetween(final String value, final int min, final int max) {
+    public boolean hasLengthBetween(final String value, final long min, final long max) {
         return value != null && value.length() >= min && value.length() <= max;
     }
 

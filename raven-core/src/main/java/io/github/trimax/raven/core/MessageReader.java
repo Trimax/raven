@@ -16,6 +16,9 @@ final class MessageReader {
 
     private final ObjectInputStream inputStream;
 
+    /** This stream's own filter: its limits are tracked per message, so it cannot be shared between streams. */
+    private final MessageInputFilter filter = new MessageInputFilter();
+
     /**
      * Wraps the stream in an {@link ObjectInputStream}, which blocks until the peer's stream header arrives.
      *
@@ -24,7 +27,7 @@ final class MessageReader {
      */
     MessageReader(final InputStream input) throws IOException {
         this.inputStream = new ObjectInputStream(input);
-        this.inputStream.setObjectInputFilter(MessageInputFilter.INSTANCE);
+        this.inputStream.setObjectInputFilter(filter);
     }
 
     /**
@@ -35,11 +38,12 @@ final class MessageReader {
      * @throws ClassNotFoundException if the peer sent a class that is not on the classpath
      */
     Message read() throws IOException, ClassNotFoundException {
+        filter.startMessage();
         final var object = inputStream.readObject();
         if (object instanceof Message message)
             return message;
 
-        log.warn("Received non-RavenMessage object: {}", object.getClass().getName());
+        log.warn("Received an object that is not a Message: {}", object.getClass().getName());
         return null;
     }
 }

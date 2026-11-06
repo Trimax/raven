@@ -58,7 +58,8 @@ public final class HandlingUtil {
      * end the affected session instead of letting the exception escape into the transport threads.
      *
      * @param callback the user callback
-     * @param context  describes the call for the log, e.g. "for message from &lt;id&gt;"; evaluated only on failure
+     * @param context  describes the call and its consequence for the log, e.g. "for message from &lt;id&gt;, closing its
+     *                 connection"; evaluated only on failure
      * @return {@code true} if the callback returned normally, {@code false} if it threw
      */
     public boolean callHandler(@NonNull final Runnable callback, @NonNull final Supplier<String> context) {
@@ -66,7 +67,7 @@ public final class HandlingUtil {
             callback.run();
             return true;
         } catch (final RuntimeException exception) {
-            log.error("Handler failed {}, closing connection: {}", context.get(), exception.getMessage(), exception);
+            log.error("Handler failed {}: {}", context.get(), exception.getMessage(), exception);
             return false;
         }
     }

@@ -30,8 +30,9 @@ public final class LengthValidator implements ConstraintValidator {
 
         final Length length = (Length) annotation;
         final String string = (String) value;
-        final int min = (int) length.min();
-        final int max = (int) length.max();
+        // Kept as long: the default max is Long.MAX_VALUE, which an int cast would turn into -1
+        final long min = length.min();
+        final long max = length.max();
 
         if (!StringUtil.hasLengthBetween(string, min, max))
             return new Violation(fieldName, Length.class,
