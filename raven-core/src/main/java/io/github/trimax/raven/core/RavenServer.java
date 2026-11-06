@@ -170,6 +170,14 @@ public final class RavenServer {
     }
 
     /**
+     * Returns the number of connections that can still be accepted before the connection limit is reached.
+     * Package-private for tests only.
+     */
+    int availableConnections() {
+        return acceptor.availablePermits();
+    }
+
+    /**
      * Called on the handshake thread once a connection is established. Opens the client's session and starts
      * its receive loop.
      */

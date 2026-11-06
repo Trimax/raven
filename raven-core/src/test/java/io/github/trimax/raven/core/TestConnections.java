@@ -21,6 +21,6 @@ final class TestConnections {
      * Opens a started connection, as the server and the client do.
      */
     static Connection open(final Socket socket) throws IOException {
-        return Connection.open(socket, HANDSHAKE_TIMEOUT, QUEUE_CAPACITY, SEND_TIMEOUT);
+        return Connection.open(socket, HANDSHAKE_TIMEOUT, QUEUE_CAPACITY, SEND_TIMEOUT, () -> { });
     }
 }

@@ -67,6 +67,17 @@ class RavenServerConfigurationTest {
                 () -> configuration(Duration.ofMillis(Integer.MAX_VALUE + 1L)).validate());
     }
 
+    @Test
+    void acceptsOneConnection() {
+        assertDoesNotThrow(() -> RavenServerConfiguration.builder().port(0).handler(NOOP).maxConnections(1).build().validate());
+    }
+
+    @Test
+    void rejectsZeroMaxConnections() {
+        assertThrows(IllegalArgumentException.class,
+                () -> RavenServerConfiguration.builder().port(0).handler(NOOP).maxConnections(0).build().validate());
+    }
+
     private static RavenServerConfiguration configuration(final Duration handshakeTimeout) {
         return RavenServerConfiguration.builder()
                 .port(0)

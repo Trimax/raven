@@ -25,8 +25,8 @@ import lombok.extern.slf4j.Slf4j;
  *
  * <p>Required property: {@code raven.server.port}.
  * Optional: {@code raven.server.bind-address}, a host name or IP address to listen on (defaults to all local addresses),
- * {@code raven.server.send-queue-capacity}, and {@code raven.server.send-timeout}, e.g. {@code 5s} or {@code PT5S}
- * (the last two default to {@link RavenServerConfiguration}'s values).
+ * {@code raven.server.send-queue-capacity}, {@code raven.server.send-timeout}, e.g. {@code 5s} or {@code PT5S},
+ * and {@code raven.server.max-connections} (all but the bind address default to {@link RavenServerConfiguration}'s values).
  */
 @Slf4j
 @Configuration(proxyBeanMethods = false)
@@ -50,6 +50,9 @@ public final class RavenServerAutoConfiguration implements SmartInitializingSing
     @Value("${raven.server.send-timeout:#{null}}")
     private final String sendTimeout;
 
+    @Value("${raven.server.max-connections:#{null}}")
+    private final Integer maxConnections;
+
     private RavenServer server;
 
     @Bean
@@ -65,6 +68,8 @@ public final class RavenServerAutoConfiguration implements SmartInitializingSing
             builder.sendQueueCapacity(sendQueueCapacity);
         if (sendTimeout != null)
             builder.sendTimeout(DurationFormatterUtils.detectAndParse(sendTimeout));
+        if (maxConnections != null)
+            builder.maxConnections(maxConnections);
 
         server = new RavenServer(builder.build());
         return server;

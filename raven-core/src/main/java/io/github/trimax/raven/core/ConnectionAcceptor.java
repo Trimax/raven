@@ -3,14 +3,17 @@ package io.github.trimax.raven.core;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.time.Duration;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.util.TryUtil;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -19,10 +22,16 @@ import lombok.extern.slf4j.Slf4j;
  *
  * <p>The handshake reads the peer's stream header and is bounded by the handshake timeout.
  * A connection that does not complete the handshake in time is closed.
+ *
+ * <p>At most {@code maxConnections} connections are served at once, counting both handshakes and established
+ * sessions. A connection accepted beyond the limit is closed at once. Each accepted connection holds one permit,
+ * released exactly once: by the handshake if it fails, otherwise when its {@link Connection} is disconnected.
  */
 @Slf4j
-@RequiredArgsConstructor
 final class ConnectionAcceptor {
+
+    /** While the connection limit stays reached, at most one drop per interval is logged at WARN. */
+    private static final Duration LIMIT_WARNING_INTERVAL = Duration.ofSeconds(10);
 
     /** Already validated by the owning server: the handshake timeout fits into an {@code int} of milliseconds. */
     private final RavenServerConfiguration configuration;
@@ -35,6 +44,20 @@ final class ConnectionAcceptor {
 
     // Sockets still in the handshake, closed by closeHandshakes() so they do not linger until the handshake timeout
     private final Set<Socket> handshakes = ConcurrentHashMap.newKeySet();
+
+    /** One permit per connection in the handshake or in a session. */
+    private final Semaphore permits;
+
+    /** {@link System#nanoTime()} from which the next dropped connection is logged at WARN. */
+    private final AtomicLong nextLimitWarning = new AtomicLong(System.nanoTime());
+
+    ConnectionAcceptor(final RavenServerConfiguration configuration, final BooleanSupplier running,
+                       final BiConsumer<Socket, Client> onAccepted) {
+        this.configuration = configuration;
+        this.running = running;
+        this.onAccepted = onAccepted;
+        this.permits = new Semaphore(configuration.getMaxConnections());
+    }
 
     /**
      * Starts the accept loop on an already bound server socket. The loop ends once that socket is closed,
@@ -69,12 +92,58 @@ final class ConnectionAcceptor {
                 continue;
             }
 
+            if (!permits.tryAcquire()) {
+                drop(clientSocket);
+                continue;
+            }
+
             // The handshake blocks on the peer's stream header, so it must not run on the accept thread
-            Thread.ofVirtual().name("raven-handshake").start(() -> handshake(clientSocket));
+            final var releasePermit = releaseOnce();
+            Thread.ofVirtual().name("raven-handshake").start(() -> handshake(clientSocket, releasePermit));
         }
     }
 
-    private void handshake(final Socket clientSocket) {
+    /**
+     * Closes a connection accepted beyond the limit. Logged at WARN at most once per interval, so a flood of
+     * connections cannot flood the log.
+     */
+    private void drop(final Socket clientSocket) {
+        TryUtil.execute(clientSocket::close);
+
+        final var now = System.nanoTime();
+        final var next = nextLimitWarning.get();
+        if (now - next >= 0 && nextLimitWarning.compareAndSet(next, now + LIMIT_WARNING_INTERVAL.toNanos()))
+            log.warn("Connection limit {} reached, dropping connections from {}; further drops within {}s are logged at DEBUG",
+                    configuration.getMaxConnections(), clientSocket.getRemoteSocketAddress(),
+                    LIMIT_WARNING_INTERVAL.toSeconds());
+        else
+            log.debug("Connection limit {} reached, dropped connection from {}",
+                    configuration.getMaxConnections(), clientSocket.getRemoteSocketAddress());
+    }
+
+    /**
+     * Returns a callback that releases one permit on its first call and does nothing afterward.
+     */
+    private Runnable releaseOnce() {
+        final var released = new AtomicBoolean();
+        return () -> {
+            if (released.compareAndSet(false, true))
+                permits.release();
+        };
+    }
+
+    /**
+     * Returns the number of connections that can still be accepted. Package-private for tests only.
+     */
+    int availablePermits() {
+        return permits.availablePermits();
+    }
+
+    /**
+     * Performs the handshake. The permit passes to the connection once it is open; until then the handshake
+     * releases it on failure.
+     */
+    private void handshake(final Socket clientSocket, final Runnable releasePermit) {
         final Connection connection;
         handshakes.add(clientSocket);
         try {
@@ -83,13 +152,19 @@ final class ConnectionAcceptor {
                 throw new IOException("server stopped");
 
             connection = Connection.open(clientSocket, configuration.getHandshakeTimeout(),
-                    configuration.getSendQueueCapacity(), configuration.getSendTimeout());
+                    configuration.getSendQueueCapacity(), configuration.getSendTimeout(), releasePermit);
         } catch (final IOException ex) {
             if (running.getAsBoolean())
                 log.error("Error setting up connection from {}: {}",
                         clientSocket.getRemoteSocketAddress(), ex.getMessage());
             TryUtil.execute(clientSocket::close);
+            releasePermit.run();
             return;
+        } catch (final RuntimeException ex) {
+            // Not expected, but the permit must not leak with the socket
+            TryUtil.execute(clientSocket::close);
+            releasePermit.run();
+            throw ex;
         } finally {
             handshakes.remove(clientSocket);
         }

@@ -145,7 +145,7 @@ public final class RavenClient {
         return HandlingUtil.closeOnFailure(socket, () -> {
             socket.connect(new InetSocketAddress(configuration.getHost(), configuration.getPort()), (int) connectTimeout.toMillis());
             // The connect timeout also bounds the stream-header exchange with the server
-            return Connection.open(socket, connectTimeout, configuration.getSendQueueCapacity(), configuration.getSendTimeout());
+            return Connection.open(socket, connectTimeout, configuration.getSendQueueCapacity(), configuration.getSendTimeout(), () -> { });
         });
     }
 

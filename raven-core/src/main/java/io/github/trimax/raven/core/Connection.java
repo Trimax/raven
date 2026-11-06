@@ -22,6 +22,9 @@ final class Connection {
     private final Socket socket;
     private final AtomicBoolean connected;
     private final MessageReader reader;
+
+    /** Invoked once by the first {@link #disconnect()}, after the socket is closed. */
+    private final Runnable onClosed;
     /** Package-private for tests only: lets them reach the writer thread. */
     final MessageWriter writer;
 
@@ -31,10 +34,13 @@ final class Connection {
      *
      * @param queueCapacity maximum number of messages waiting to be written
      * @param sendTimeout   how long send() waits for space in a full queue before disconnecting the peer
+     * @param onClosed      invoked once when the connection is disconnected
      */
-    Connection(final Socket socket, final int queueCapacity, final Duration sendTimeout) throws IOException {
+    Connection(final Socket socket, final int queueCapacity, final Duration sendTimeout,
+               final Runnable onClosed) throws IOException {
         this.socket = socket;
         this.connected = new AtomicBoolean(true);
+        this.onClosed = onClosed;
 
         // The writer sends our stream header before we wait for the peer's; the other order would leave
         // both sides waiting for each other's header
@@ -49,15 +55,17 @@ final class Connection {
      * @param handshakeTimeout how long to wait for the peer's stream header
      * @param queueCapacity    maximum number of messages waiting to be written
      * @param sendTimeout      how long send() waits for space in a full queue before disconnecting the peer
+     * @param onClosed         invoked once when the returned connection is disconnected; never invoked if this
+     *                         method throws
      * @throws IOException if the handshake fails or times out; the socket is closed by then
      */
-    static Connection open(final Socket socket, final Duration handshakeTimeout,
-                           final int queueCapacity, final Duration sendTimeout) throws IOException {
+    static Connection open(final Socket socket, final Duration handshakeTimeout, final int queueCapacity,
+                           final Duration sendTimeout, final Runnable onClosed) throws IOException {
         // The caller never receives a connection if the handshake fails, so the socket is released here
         return HandlingUtil.closeOnFailure(socket, () -> {
             // Bound the stream-header exchange, which otherwise blocks until the peer writes its header
             socket.setSoTimeout((int) handshakeTimeout.toMillis());
-            final var connection = new Connection(socket, queueCapacity, sendTimeout);
+            final var connection = new Connection(socket, queueCapacity, sendTimeout, onClosed);
             socket.setSoTimeout(0);
 
             // Started last, so a failed handshake never leaves a writer thread behind
@@ -110,7 +118,7 @@ final class Connection {
 
     /**
      * Closes the connection, releasing all resources.
-     * Thread-safe: only the first caller actually closes the socket.
+     * Thread-safe: only the first caller actually closes the socket and invokes the close callback.
      */
     void disconnect() {
         if (!connected.compareAndSet(true, false))
@@ -118,5 +126,6 @@ final class Connection {
 
         writer.stop();
         TryUtil.execute(socket::close);
+        onClosed.run();
     }
 }

@@ -36,7 +36,7 @@ class ConnectionSendTest {
                 }
             });
             final Socket raw = new Socket("localhost", listener.getLocalPort());
-            client = Connection.open(raw, TestConnections.HANDSHAKE_TIMEOUT, clientQueueCapacity, clientSendTimeout);
+            client = Connection.open(raw, TestConnections.HANDSHAKE_TIMEOUT, clientQueueCapacity, clientSendTimeout, () -> { });
             server = accepted.get(5, TimeUnit.SECONDS);
         }
 
