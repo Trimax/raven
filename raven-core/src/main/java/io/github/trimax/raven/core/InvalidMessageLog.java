@@ -11,7 +11,7 @@ import lombok.extern.slf4j.Slf4j;
  * {@value #WARN_LIMIT} are logged at WARN and the rest at DEBUG, so a peer that keeps sending invalid messages
  * cannot flood the log; {@link #summarize()} reports at the end of the session how many were kept out of WARN.
  *
- * <p>Not thread-safe: used only by the receive thread of its connection.
+ * <p>Not thread-safe: used only by the reception thread of its connection.
  */
 @Slf4j
 @RequiredArgsConstructor

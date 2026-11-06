@@ -107,7 +107,7 @@ final class MessageWriter {
             onFailure.run();
         } catch (final RuntimeException ex) {
             // E.g. a message's own writeObject() threw; the stream may hold a partial object, so it cannot be reused
-            log.warn("Failed to send message: {}", ex.toString(), ex);
+            log.warn("Failed to send message", ex);
             onFailure.run();
         } catch (final Error error) {
             // Not handled here, but the connection must not stay open without a writer

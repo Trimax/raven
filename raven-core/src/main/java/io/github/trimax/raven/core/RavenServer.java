@@ -3,6 +3,7 @@ package io.github.trimax.raven.core;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
@@ -158,8 +159,7 @@ public final class RavenServer {
      * Returns -1 if the server is not running.
      */
     public int getPort() {
-        final var socket = serverSocket.get();
-        return socket == null ? -1 : socket.getLocalPort();
+        return Optional.of(serverSocket).map(AtomicReference::get).map(ServerSocket::getLocalPort).orElse(-1);
     }
 
     /**
@@ -179,7 +179,7 @@ public final class RavenServer {
 
     /**
      * Called on the handshake thread once a connection is established. Opens the client's session and starts
-     * its receive loop.
+     * its reception loop.
      */
     private void onConnectionAccepted(final Socket socket, final Client client) {
         if (!sessions.open(socket, client))
@@ -210,7 +210,7 @@ public final class RavenServer {
         if (!InterceptorUtil.shouldProceed(configuration.getInterceptors(), client, message))
             return true;
 
-        // A failing handler ends this session; the receive loop then releases the connection
+        // A failing handler ends this session; the reception loop then releases the connection
         return HandlingUtil.callHandler(() -> configuration.getHandler().onMessage(client, message),
                 () -> "for message from " + client.getId() + ", closing its connection");
     }

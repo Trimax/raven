@@ -14,7 +14,7 @@ import lombok.NoArgsConstructor;
 final class ReceiveLoop {
 
     /**
-     * Runs the receive loop for the connection on the current thread.
+     * Runs the reception loop for the connection on the current thread.
      * Ends when the connection closes, {@code running} turns false, or {@code deliver} returns {@code false}.
      * The connection is always disconnected and {@code onEnded} is always invoked afterward.
      *

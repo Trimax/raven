@@ -32,7 +32,7 @@ final class SessionManager {
      * handler. Any failure of the handler's {@code onConnect} releases the connection, so the accept path
      * keeps running.
      *
-     * @return {@code true} if the session is open and the caller must start its receive loop
+     * @return {@code true} if the session is open and the caller must start its reception loop
      */
     boolean open(final Socket socket, final Client client) {
         // Registered before the running check, so closeAll() either sees this client or this thread sees the stop
@@ -45,7 +45,7 @@ final class SessionManager {
         }
 
         // closeAll() skipped this client while onConnect ran, so its single disconnect is reported here and the
-        // receive loop, which would exit at once, is not started
+        // reception loop, which would exit at once, is not started
         if (!running.getAsBoolean()) {
             if (clients.remove(client.getId()) != null)
                 disconnectClient(client);
@@ -103,7 +103,7 @@ final class SessionManager {
         log.info("Client connected: {} ({})", client.getId(), socket.getRemoteSocketAddress());
         if (!HandlingUtil.callHandler(() -> handler.onConnect(client),
                 () -> "on connect for " + socket.getRemoteSocketAddress() + ", closing the connection")) {
-            // The receive loop never starts, so the connection must be released here
+            // The reception loop never starts, so the connection must be released here
             clients.remove(client.getId());
             client.disconnect();
             return false;

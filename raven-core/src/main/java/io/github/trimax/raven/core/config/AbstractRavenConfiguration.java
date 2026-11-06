@@ -33,7 +33,7 @@ abstract class AbstractRavenConfiguration {
 
     /**
      * How long an established connection may go without receiving anything before it is closed.
-     * {@link Duration#ZERO} (the default) disables the timeout. Otherwise it must be at least one millisecond and
+     * {@link Duration#ZERO} (the default) disables the timeout. Otherwise, it must be at least one millisecond and
      * no larger than {@link Integer#MAX_VALUE} milliseconds (about 24.8 days).
      *
      * <p>There is no heartbeat: a peer that is healthy but sends nothing for this long is disconnected too.

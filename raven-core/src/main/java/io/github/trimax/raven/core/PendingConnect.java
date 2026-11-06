@@ -39,7 +39,7 @@ final class PendingConnect {
 
     /**
      * Cancels the attempt in progress, if any; every attempt begun before this call will report itself
-     * cancelled from {@link #finish(Attempt)}.
+     * canceled from {@link #finish(Attempt)}.
      */
     void cancel() {
         generation++;
@@ -54,7 +54,7 @@ final class PendingConnect {
     /**
      * Ends an attempt, so that a new one can begin. Safe to call more than once for the same attempt.
      *
-     * @return {@code false} if the attempt was cancelled and its result must be discarded
+     * @return {@code false} if the attempt was canceled and its result must be discarded
      */
     boolean finish(final Attempt attempt) {
         // cancel() may have cleared the field already and a newer attempt may own it now

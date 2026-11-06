@@ -31,7 +31,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public final class RavenClient {
 
-    /** Bound on the receive threads of a client, so that its methods called from a callback do not wait for it. */
+    /** Bound on the reception threads of a client, so that its methods called from a callback do not wait for it. */
     private static final ScopedValue<RavenClient> CALLBACK_CLIENT = ScopedValue.newInstance();
 
     @NonNull
@@ -42,7 +42,7 @@ public final class RavenClient {
 
     /**
      * Current session, or {@code null}. Written under {@link #lock}; volatile because {@link #send(Message)} reads it
-     * without the lock. A session whose connection has closed stays here until its receive thread detaches it.
+     * without the lock. A session whose connection has closed stays here until its reception thread detaches it.
      */
     private volatile Session session;
 
@@ -116,7 +116,7 @@ public final class RavenClient {
                 return;
             }
 
-            // The previous session may still be ending: its connection has closed, but its receive thread has not
+            // The previous session may still be ending: its connection has closed, but its reception thread has not
             // reported onDisconnect yet. The new session waits for it, so the callbacks never overlap or reorder
             final var previous = session == null ? CompletableFuture.<Void>completedFuture(null) : session.ended();
             started = new Session(newConnection, previous);
@@ -151,7 +151,7 @@ public final class RavenClient {
     }
 
     /**
-     * Runs all callbacks of one session on its receive thread: {@code onConnect}, the receive loop, {@code onDisconnect}.
+     * Runs all callbacks of one session on its reception thread: {@code onConnect}, the reception loop, {@code onDisconnect}.
      */
     private void runSession(final Session current) {
         try {
@@ -185,7 +185,7 @@ public final class RavenClient {
     /**
      * Calls {@code onConnect}; if it fails, closes the connection, which then gets no {@code onDisconnect}.
      *
-     * @return {@code true} if the session may proceed to its receive loop
+     * @return {@code true} if the session may proceed to its reception loop
      */
     private boolean announce(final Session current) {
         final var announced = HandlingUtil.callHandler(configuration.getHandler()::onConnect,
@@ -249,7 +249,7 @@ public final class RavenClient {
         synchronized (lock) {
             pendingConnect.cancel();
             current = session;
-            // Closing the socket ends the receive loop, whose thread then reports onDisconnect; interrupting it is
+            // Closing the socket ends the reception loop, whose thread then reports onDisconnect; interrupting it is
             // not needed and would leave the interrupt flag set inside onDisconnect
             if (current != null)
                 current.connection().disconnect();
@@ -302,7 +302,7 @@ public final class RavenClient {
         if (!InterceptorUtil.shouldProceed(configuration.getInterceptors(), message))
             return true;
 
-        // A failing handler ends this session; the receive loop then releases the connection
+        // A failing handler ends this session; the reception loop then releases the connection
         return HandlingUtil.callHandler(() -> configuration.getHandler().onMessage(message),
                 () -> "for received message, closing the connection");
     }
