@@ -164,10 +164,13 @@ public final class RavenClient {
             if (!announce(current))
                 return;
 
-            ReceiveLoop.run(current.connection(), () -> true, this::deliver, () -> detach(current));
-
-            log.info("RavenClient disconnected");
-            HandlingUtil.callHandler(configuration.getHandler()::onDisconnect, () -> "on disconnect");
+            try {
+                ReceiveLoop.run(current.connection(), () -> true, this::deliver, () -> detach(current));
+            } finally {
+                // Even if the loop throws (e.g. a failing validator), every announced session reports its end once
+                log.info("RavenClient disconnected");
+                HandlingUtil.callHandler(configuration.getHandler()::onDisconnect, () -> "on disconnect");
+            }
         } finally {
             // Also releases connect() if the session ended before it was announced
             current.announced().complete(null);
