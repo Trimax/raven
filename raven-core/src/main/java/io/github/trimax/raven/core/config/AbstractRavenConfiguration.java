@@ -2,6 +2,8 @@ package io.github.trimax.raven.core.config;
 
 import java.time.Duration;
 
+import io.github.trimax.raven.core.codec.JavaSerializationCodec;
+import io.github.trimax.raven.core.codec.MessageCodec;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NonNull;
@@ -43,6 +45,21 @@ abstract class AbstractRavenConfiguration {
     private final Duration idleTimeout = Duration.ZERO;
 
     /**
+     * Largest serialized message, in bytes, that may be sent or received. {@code send()} rejects a larger message,
+     * and a peer that announces a larger frame is disconnected. Must be at least 1; 16 MiB by default.
+     */
+    @Builder.Default
+    private final int maxMessageSize = 16 * 1024 * 1024;
+
+    /**
+     * Turns messages into frames and back. Both sides of a connection must use compatible codecs.
+     * Defaults to Java serialization with a deserialization filter, see {@link JavaSerializationCodec}.
+     */
+    @NonNull
+    @Builder.Default
+    private final MessageCodec codec = new JavaSerializationCodec();
+
+    /**
      * Checks the settings shared by server and client, then the subclass's own settings.
      *
      * @throws IllegalArgumentException if a setting is out of range
@@ -64,6 +81,9 @@ abstract class AbstractRavenConfiguration {
 
         if (idleTimeout.toMillis() > Integer.MAX_VALUE)
             throw new IllegalArgumentException("idleTimeout is too large: " + idleTimeout);
+
+        if (maxMessageSize < 1)
+            throw new IllegalArgumentException("maxMessageSize must be at least 1, got " + maxMessageSize);
 
         validateSpecific();
     }
