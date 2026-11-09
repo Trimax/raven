@@ -9,7 +9,8 @@ import io.github.trimax.raven.core.validation.annotation.Matches;
 /**
  * Validator for the {@link Matches} constraint.
  * Validates that the string field value matches the specified regular expression pattern.
- * Null values are skipped (valid).
+ * Null values are skipped (valid). The violation message gives the length of the value, never the value itself,
+ * since it may come from an untrusted peer and end up in a log.
  */
 public final class MatchesValidator implements ConstraintValidator {
 
@@ -34,7 +35,7 @@ public final class MatchesValidator implements ConstraintValidator {
 
         if (!string.matches(pattern))
             return new Violation(fieldName, Matches.class,
-                "field '" + fieldName + "' must match pattern '" + pattern + "', got: '" + string + "'");
+                "field '" + fieldName + "' must match pattern '" + pattern + "', got a string of length " + string.length());
 
         return null;
     }

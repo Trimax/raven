@@ -1,8 +1,16 @@
 package io.github.trimax.raven.core.util;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.IOException;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.Test;
 
@@ -147,5 +155,82 @@ class RetryUtilTest {
         );
 
         assertEquals(2, attempts.get());
+    }
+
+    // --- execute(ThrowingSupplier, RetryStrategy, Predicate, BiConsumer) ---
+
+    @Test
+    void reportsEveryRetriedFailureWithItsAttemptNumber() throws IOException {
+        final var calls = new AtomicInteger();
+        final var retried = new ArrayList<Integer>();
+
+        final var result = RetryUtil.execute(() -> {
+            if (calls.incrementAndGet() < 3)
+                throw new IOException("not yet");
+            return "done";
+        }, new FixedRetryStrategy(5, 1), exception -> true, (attempt, exception) -> retried.add(attempt));
+
+        assertEquals("done", result);
+        assertEquals(List.of(1, 2), retried);
+    }
+
+    @Test
+    void rethrowsAtOnceWhenRetryIfRejectsTheFailure() {
+        final var calls = new AtomicInteger();
+        final var retried = new AtomicInteger();
+        final var failure = new IOException("closed");
+
+        final var thrown = assertThrows(IOException.class, () -> RetryUtil.execute(() -> {
+            calls.incrementAndGet();
+            throw failure;
+        }, new FixedRetryStrategy(5, 1), exception -> false, (attempt, exception) -> retried.incrementAndGet()));
+
+        assertSame(failure, thrown);
+        assertEquals(1, calls.get());
+        assertEquals(0, retried.get());
+    }
+
+    @Test
+    void stopsRetryingWhenInterruptedDuringAPause() throws InterruptedException {
+        final var calls = new AtomicInteger();
+        final var outcome = new AtomicReference<Throwable>();
+        final var interruptedAfter = new AtomicBoolean();
+
+        final var worker = Thread.ofVirtual().start(() -> {
+            try {
+                RetryUtil.execute(() -> {
+                    calls.incrementAndGet();
+                    throw new IOException("failing");
+                }, new ExponentialRetryStrategy(10_000, 10_000), exception -> true, (attempt, exception) -> { });
+            } catch (final IOException ex) {
+                outcome.set(ex);
+            }
+            interruptedAfter.set(Thread.currentThread().isInterrupted());
+        });
+
+        await().atMost(2, TimeUnit.SECONDS).until(() -> calls.get() == 1);
+        worker.interrupt();
+        worker.join(Duration.ofSeconds(2));
+
+        assertFalse(worker.isAlive(), "an interrupt must end the retries instead of waiting out the pause");
+        assertInstanceOf(IOException.class, outcome.get());
+        assertTrue(interruptedAfter.get(), "the interrupt flag must stay set");
+        assertEquals(1, calls.get());
+    }
+
+    @Test
+    void doesNotSpinWhenAlreadyInterrupted() throws InterruptedException {
+        final var calls = new AtomicInteger();
+        final var worker = Thread.ofVirtual().start(() -> {
+            Thread.currentThread().interrupt();
+            assertThrows(IOException.class, () -> RetryUtil.execute(() -> {
+                calls.incrementAndGet();
+                throw new IOException("failing");
+            }, new ExponentialRetryStrategy(1, 1)));
+        });
+        worker.join(Duration.ofSeconds(2));
+
+        // Before the fix every later Thread.sleep failed at once and the retries spun without pause
+        assertEquals(1, calls.get());
     }
 }

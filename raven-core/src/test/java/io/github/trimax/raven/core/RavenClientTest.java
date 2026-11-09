@@ -3,6 +3,7 @@ package io.github.trimax.raven.core;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.net.InetAddress;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -170,6 +171,41 @@ class RavenClientTest {
     }
 
     @Test
+    void onDisconnectIsNotCalledWithTheInterruptFlagSet() throws InterruptedException {
+        final var interrupted = new AtomicBoolean(true);
+        final var sleptNormally = new AtomicBoolean(false);
+        final var disconnected = new CountDownLatch(1);
+        final var client = createClient("localhost", port, new ClientHandler() {
+            @Override
+            public void onConnect() {}
+
+            @Override
+            public void onDisconnect() {
+                // Runs on the receive thread when the server ends the session; a reconnect backoff must work here
+                interrupted.set(Thread.currentThread().isInterrupted());
+                try {
+                    Thread.sleep(10);
+                    sleptNormally.set(true);
+                } catch (final InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+                disconnected.countDown();
+            }
+
+            @Override
+            public void onMessage(final Message message) {}
+        });
+
+        client.connect();
+        await().atMost(2, TimeUnit.SECONDS).until(client::isConnected);
+        server.stop();
+
+        assertTrue(disconnected.await(5, TimeUnit.SECONDS));
+        assertFalse(interrupted.get(), "onDisconnect must not see the interrupt flag");
+        assertTrue(sleptNormally.get());
+    }
+
+    @Test
     void reconnectAfterDisconnect() {
         final var client = createClient("localhost", port, new NoOpClientHandler());
 
@@ -211,6 +247,7 @@ class RavenClientTest {
 
     private static RavenServer createServer(final ServerHandler handler) {
         final var config = RavenServerConfiguration.builder()
+                .bindAddress(InetAddress.getLoopbackAddress())
                 .port(0)
                 .handler(handler)
                 .build();

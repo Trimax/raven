@@ -1,95 +1,76 @@
 package io.github.trimax.raven.core;
 
-import java.io.IOException;
-import java.net.ServerSocket;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicReference;
 
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
+import io.github.trimax.raven.core.internal.server.ServerSlot;
+import io.github.trimax.raven.core.internal.session.SessionSettings;
+import io.github.trimax.raven.core.internal.util.ThreadUtil;
 import io.github.trimax.raven.core.util.ArrayUtil;
-import io.github.trimax.raven.core.util.InterceptorUtil;
 import io.github.trimax.raven.core.util.MeasurementUtil;
 import io.github.trimax.raven.core.validation.MessageValidator;
 import lombok.NonNull;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
  * Pure TCP server. Accepts client connections, manages their lifecycle,
  * and delegates events to a {@link io.github.trimax.raven.core.handler.ServerHandler}.
  *
- * <p>Uses virtual threads for the acceptance loop and per-client receiver loops.
- * This class has no Spring dependencies — it is a plain Java transport layer.
+ * <p>This class is the public facade; each run between {@link #start()} and {@link #stop()} is a
+ * {@code ServerRuntime}, held by a {@code ServerSlot}. Every connection is a {@code Session} with its own virtual thread, which runs all handler
+ * callbacks of that client in order: {@code onConnect}, {@code onMessage} for each received message, then
+ * {@code onDisconnect}. {@code onDisconnect} is called exactly once for every {@code onConnect} that returned
+ * normally; a failing {@code onConnect} closes the connection and gets no {@code onDisconnect}.
+ *
+ * <p>This class has no Spring dependencies — it is a plain Java transport layer.
  */
 @Slf4j
-@RequiredArgsConstructor
 public final class RavenServer {
 
-    @NonNull
-    private final RavenServerConfiguration configuration;
+    private final SessionSettings settings;
+    private final ServerSlot server;
 
-    private final Map<UUID, Client> clients = new ConcurrentHashMap<>();
-    private final AtomicReference<ServerSocket> serverSocket = new AtomicReference<>();
+    public RavenServer(@NonNull final RavenServerConfiguration configuration) {
+        configuration.validate();
 
-    /**
-     * Starts the server and begins accepting connections.
+        this.settings = SessionSettings.of(configuration);
+        this.server = new ServerSlot(configuration);
+    }
+
+/**
+     * Starts the server and begins accepting connections. Does nothing if it is running already.
      */
     public void start() {
-        try {
-            final var socket = new ServerSocket(configuration.getPort());
-            if (!serverSocket.compareAndSet(null, socket)) {
-                socket.close();
-                return;
-            }
-
-            log.info("RavenServer started on port {}", socket.getLocalPort());
-            Thread.ofVirtual().name("raven-accept").start(this::acceptLoop);
-        } catch (final IOException ex) {
-            log.error("Failed to start RavenServer on port {}: {}", configuration.getPort(), ex.getMessage());
-        }
+        server.open();
     }
 
-    /**
-     * Stops the server and disconnects all clients.
-     * Per-client receive loops will not invoke handler.onDisconnect() after the server is stopped.
+/**
+     * Stops the server and disconnects all clients. Returns once {@code onDisconnect} has returned for every client.
+     * Called from any Raven callback, it returns without waiting.
      */
     public void stop() {
-        final var socket = serverSocket.getAndSet(null);
-        if (socket == null)
-            return;
-
-        log.info("RavenServer stopping...");
-
-        clients.values().forEach(this::disconnectClient);
-        clients.clear();
-
-        try {
-            socket.close();
-        } catch (final IOException ex) {
-            log.debug("Error closing server socket: {}", ex.getMessage());
-        }
-
-        log.info("RavenServer stopped");
+        ThreadUtil.awaitOutsideCallbacks(server.close());
     }
 
-    /**
-     * Broadcasts a message to all connected clients.
+/**
+     * Broadcasts a message to all connected clients. Delivery is asynchronous, as described at
+     * {@link #send(Message, Set)}.
      *
      * @param message the message to broadcast
      */
     public void broadcast(final Message message) {
         MessageValidator.validateOrThrow(message);
+        final var payload = settings.encode(message);
 
-        MeasurementUtil.measure(() -> send(message, clients.keySet()),
-                duration -> log.debug("Message {} broadcasted in {}ms", message.getId(), duration.toMillis()));
+        MeasurementUtil.measure(() -> server.send(payload, server.ids()),
+                duration -> log.debug("Message {} queued for broadcast in {}ms", message.getId(), duration.toMillis()));
     }
 
-    /**
+/**
      * Sends a message to the specified recipients.
-     * If the recipient array is empty, no message is sent (no-op).
+     * If the recipient array is empty, no message is sent (no-op). Delivery is asynchronous, as described at
+     * {@link #send(Message, Set)}.
      *
      * @param message    the message to send
      * @param recipients one or more client IDs; an empty array means no-op
@@ -99,105 +80,59 @@ public final class RavenServer {
             return;
 
         MeasurementUtil.measure(() -> send(message, Set.of(recipients)),
-                duration -> log.debug("Message {} sent in {}ms", message.getId(), duration.toMillis()));
+                duration -> log.debug("Message {} queued in {}ms", message.getId(), duration.toMillis()));
     }
 
-    /**
+/**
      * Sends a message to the specified recipients.
-     * If the recipient array is empty, no message is sent (no-op).
+     * If the recipient set is empty, no message is sent (no-op).
+     *
+     * <p>The message is serialized once, on the calling thread, before this method returns: later changes to it are
+     * not sent. Delivery is asynchronous: the call returns once the message is queued for each recipient.
+     * If a recipient's queue is full, it blocks for up to the configured {@code sendTimeout} (5 seconds by default) per recipient and then disconnects
+     * that stalled peer. Write errors are logged and close the connection rather than being thrown; messages
+     * still queued when a connection is closed are dropped.
      *
      * @param message    the message to send
      * @param recipients set with client IDs; an empty set means no-op
+     * @throws IllegalArgumentException if the message cannot be serialized or exceeds {@code maxMessageSize}
      */
     public void send(final Message message, final Set<UUID> recipients) {
         MessageValidator.validateOrThrow(message);
+        final var payload = settings.encode(message);
 
-        for (final var recipientId : recipients) {
-            final var client = clients.get(recipientId);
-            if (client == null) {
-                log.warn("Cannot send message: client {} not found", recipientId);
-                continue;
-            }
-
-            client.send(message);
-        }
+        if (!server.send(payload, recipients))
+            log.warn("Cannot send message: server is not running");
     }
 
-    /**
+/**
      * Returns the set of currently connected client IDs.
      */
     public Set<UUID> getClients() {
-        return Set.copyOf(clients.keySet());
+        return server.ids();
     }
 
-    /**
+/**
      * Returns the port the server is bound to.
      * If started with port 0, this returns the actual ephemeral port assigned by the OS.
      * Returns -1 if the server is not running.
      */
     public int getPort() {
-        final var socket = serverSocket.get();
-        return socket == null ? -1 : socket.getLocalPort();
+        return server.port();
     }
 
-    /**
+/**
      * Returns whether the server is currently running.
      */
     public boolean isRunning() {
-        return serverSocket.get() != null;
+        return server.isOpen();
     }
 
-    private void acceptLoop() {
-        while (isRunning()) {
-            try {
-                final var socket = serverSocket.get();
-                if (socket == null)
-                    break;
-
-                final var clientSocket = socket.accept();
-                final var client = new Client(clientSocket);
-
-                clients.put(client.getId(), client);
-                log.info("Client connected: {} ({})", client.getId(), clientSocket.getRemoteSocketAddress());
-
-                configuration.getHandler().onConnect(client);
-
-                Thread.ofVirtual()
-                        .name("raven-client-" + client.getId())
-                        .start(() -> receiveLoop(client));
-            } catch (final IOException ex) {
-                if (isRunning())
-                    log.error("Error accepting connection: {}", ex.getMessage());
-            }
-        }
-    }
-
-    private void receiveLoop(final Client client) {
-        while (client.isConnected() && isRunning()) {
-            final var message = client.receive();
-            if (message == null)
-                break;
-
-            final var violations = MessageValidator.validate(message);
-            if (!violations.isEmpty()) {
-                log.warn("Received invalid {} from {}: {}", message.getClass().getSimpleName(), client.getId(), violations);
-                continue;
-            }
-
-            if (!InterceptorUtil.shouldProceed(configuration.getInterceptors(), client, message))
-                continue;
-
-            configuration.getHandler().onMessage(client, message);
-        }
-
-        if (isRunning() && clients.remove(client.getId()) != null)
-            disconnectClient(client);
-    }
-
-    private void disconnectClient(final Client client) {
-        client.disconnect();
-        configuration.getHandler().onDisconnect(client);
-
-        log.info("Client disconnected: {}", client.getId());
+/**
+     * Returns the number of connections that can still be accepted before the connection limit is reached.
+     * Package-private for tests only.
+     */
+    int availableConnections() {
+        return server.availableConnections();
     }
 }

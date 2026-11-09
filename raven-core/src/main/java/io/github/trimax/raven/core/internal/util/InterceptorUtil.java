@@ -1,4 +1,4 @@
-package io.github.trimax.raven.core.util;
+package io.github.trimax.raven.core.internal.util;
 
 import java.util.List;
 
@@ -6,6 +6,7 @@ import io.github.trimax.raven.core.Client;
 import io.github.trimax.raven.core.Message;
 import io.github.trimax.raven.core.interceptor.ClientMessageInterceptor;
 import io.github.trimax.raven.core.interceptor.ServerMessageInterceptor;
+import io.github.trimax.raven.core.util.CollectionUtil;
 import io.github.trimax.raven.core.util.interfaces.ThrowingSupplier;
 import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
@@ -13,6 +14,8 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * Utility for running interceptor chains with fault isolation.
  * Exceptions thrown by interceptors are logged and treated as rejection.
+ *
+ * <p>Internal: not part of the API.
  */
 @Slf4j
 @UtilityClass

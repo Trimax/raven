@@ -48,6 +48,13 @@ class DecimalRangeValidatorTest {
     }
 
     @Test
+    void notANumberIsRejected() {
+        // NaN compares false with every bound, so it used to pass
+        assertNotNull(validator.validate("value", Double.NaN, getAnnotation()));
+        assertNotNull(validator.validate("value", Float.NaN, getAnnotation()));
+    }
+
+    @Test
     void nullValueSkipped() {
         assertNull(validator.validate("ratio", null, getAnnotation()));
     }

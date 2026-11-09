@@ -1,0 +1,218 @@
+package io.github.trimax.raven.core.internal.codec;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.InvalidClassException;
+import java.io.ObjectInputFilter.FilterInfo;
+import java.io.ObjectInputFilter.Status;
+import java.io.Serializable;
+import java.lang.reflect.Proxy;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+
+import org.junit.jupiter.api.Test;
+
+import io.github.trimax.raven.core.Message;
+
+/**
+ * Unit tests for {@link MessageInputFilter}: which resolved classes may be deserialized, proxies included, and the
+ * structural limits.
+ */
+class MessageInputFilterTest {
+
+    private final Rejection rejection = new Rejection();
+    private final MessageInputFilter filter = new MessageInputFilter(new MessageTypePolicy(Set.of()), rejection);
+
+    static final class PingMessage extends Message {
+    }
+
+    static final class Payload implements Serializable {
+    }
+
+    @Test
+    void allowsMessageSubclasses() {
+        assertEquals(Status.ALLOWED, check(PingMessage.class));
+    }
+
+    @Test
+    void allowsSafeJdkValueTypes() {
+        assertEquals(Status.ALLOWED, check(String.class));
+        assertEquals(Status.ALLOWED, check(UUID.class));
+        assertEquals(Status.ALLOWED, check(Instant.class));
+        assertEquals(Status.ALLOWED, check(ArrayList.class));
+    }
+
+    @Test
+    void allowsEnums() {
+        assertEquals(Status.ALLOWED, check(TimeUnit.class));
+    }
+
+    @Test
+    void allowsArraysOfAllowedTypes() {
+        assertEquals(Status.ALLOWED, check(byte[].class));
+        assertEquals(Status.ALLOWED, check(String[][].class));
+        assertEquals(Status.ALLOWED, check(PingMessage[].class));
+    }
+
+    @Test
+    void rejectsOtherSerializableClasses() {
+        assertEquals(Status.REJECTED, check(Payload.class));
+        assertEquals(Status.REJECTED, check(Payload[].class));
+    }
+
+    @Test
+    void leavesStructuralChecksWithoutClassUndecided() {
+        assertEquals(Status.UNDECIDED, filter.checkInput(info(null, 1, 1, -1)));
+    }
+
+    @Test
+    void rejectsTooDeepGraphs() {
+        assertEquals(Status.REJECTED, filter.checkInput(
+                info(String.class, MessageInputFilter.MAX_DEPTH + 1, 1, -1)));
+    }
+
+    @Test
+    void rejectsTooManyReferencesInOneMessage() {
+        assertEquals(Status.ALLOWED, filter.checkInput(info(String.class, 1, 1, -1)));
+        assertEquals(Status.REJECTED, filter.checkInput(info(String.class, 1, 2 + MessageInputFilter.MAX_REFERENCES, -1)));
+    }
+
+    @Test
+    void allowsTheInternalArraysOfAllowedCollections() {
+        assertEquals(Status.ALLOWED, check(Object[].class));
+        assertEquals(Status.ALLOWED, check(Map.Entry[].class));
+    }
+
+    @Test
+    void allowsTheSuperclassOfTheBoxedNumbers() {
+        assertEquals(Status.ALLOWED, check(Number.class));
+    }
+
+    /** A record, as a DTO carried inside a message would be. */
+    record Point(int x, int y) implements Serializable {
+    }
+
+    @Test
+    void allowsRecordsAndArraysOfRecords() {
+        assertEquals(Status.ALLOWED, check(Point.class));
+        assertEquals(Status.ALLOWED, check(Point[].class));
+    }
+
+    @Test
+    void allowsClassesOfTrustedPackages() {
+        final var trusting = new MessageInputFilter(new MessageTypePolicy(Set.of("io.github.trimax.raven.core.internal")), rejection);
+
+        assertEquals(Status.ALLOWED, trusting.checkInput(info(Payload.class, 1, 1, -1)));
+        assertEquals(Status.ALLOWED, trusting.checkInput(info(Payload[].class, 1, 1, -1)));
+    }
+
+    /** An interface of this package, so it can be trusted. */
+    public interface Greeting {
+        String greet();
+    }
+
+    @Test
+    void rejectsProxiesOfUntrustedInterfaces() {
+        final var proxy = proxyClass(Greeting.class);
+
+        assertEquals(Status.REJECTED, check(proxy));
+        assertTrue(explained().reason().contains("interfaces of trusted packages"), explained().reason());
+        // Even when the proxy only claims to be an allowed-looking type: an interface is never a Message or a record
+        assertEquals(Status.REJECTED, check(proxyClass(Runnable.class)));
+    }
+
+    @Test
+    void allowsProxiesOfTrustedInterfaces() {
+        final var trusting = new MessageInputFilter(new MessageTypePolicy(Set.of("io.github.trimax.raven.core.internal.codec")), rejection);
+
+        assertEquals(Status.ALLOWED, trusting.checkInput(info(proxyClass(Greeting.class), 1, 1, -1)));
+        assertEquals(Status.REJECTED, trusting.checkInput(info(proxyClass(Greeting.class, Runnable.class), 1, 1, -1)));
+    }
+
+    @Test
+    void explainsWhichClassWasRejected() {
+        check(Payload.class);
+
+        assertTrue(explained().subject().contains(Payload.class.getName()), explained().subject());
+    }
+
+    @Test
+    void explainsWhichLimitWasExceeded() {
+        filter.checkInput(info(String.class, MessageInputFilter.MAX_DEPTH + 1, 1, -1));
+
+        assertEquals("it exceeds the limit of 64 levels of nesting per message", explained().reason());
+    }
+
+    @Test
+    void stillRejectsArraysOfOtherClasses() {
+        assertEquals(Status.REJECTED, check(Thread[].class));
+    }
+
+    @Test
+    void sumsArrayElementsAcrossTheArraysOfOneMessage() {
+        // Nested arrays are allocated level by level before their data arrives, so the budget is shared
+        final var half = MessageInputFilter.MAX_ARRAY_ELEMENTS / 2;
+        assertEquals(Status.ALLOWED, filter.checkInput(info(long[][].class, 1, 1, half)));
+        assertEquals(Status.ALLOWED, filter.checkInput(info(long[].class, 2, 2, half)));
+        assertEquals(Status.REJECTED, filter.checkInput(info(long[].class, 2, 3, 1)));
+    }
+
+    @Test
+    void rejectsTooLongArrays() {
+        assertEquals(Status.REJECTED, filter.checkInput(
+                info(byte[].class, 1, 1, MessageInputFilter.MAX_ARRAY_ELEMENTS + 1)));
+    }
+
+    @Test
+    void allowsGraphsAtTheLimits() {
+        assertEquals(Status.ALLOWED, filter.checkInput(info(byte[].class,
+                MessageInputFilter.MAX_DEPTH, MessageInputFilter.MAX_REFERENCES, MessageInputFilter.MAX_ARRAY_ELEMENTS)));
+    }
+
+    private RejectedMessageException explained() {
+        return assertInstanceOf(RejectedMessageException.class, rejection.explain(new InvalidClassException("rejected")));
+    }
+
+    private static Class<?> proxyClass(final Class<?>... interfaces) {
+        return Proxy.newProxyInstance(MessageInputFilterTest.class.getClassLoader(), interfaces, (_, _, _) -> null).getClass();
+    }
+
+    private Status check(final Class<?> type) {
+        return filter.checkInput(info(type, 1, 1, -1));
+    }
+
+    private static FilterInfo info(final Class<?> type, final long depth, final long references, final long arrayLength) {
+        return new FilterInfo() {
+            @Override
+            public Class<?> serialClass() {
+                return type;
+            }
+
+            @Override
+            public long arrayLength() {
+                return arrayLength;
+            }
+
+            @Override
+            public long depth() {
+                return depth;
+            }
+
+            @Override
+            public long references() {
+                return references;
+            }
+
+            @Override
+            public long streamBytes() {
+                return 0;
+            }
+        };
+    }
+}

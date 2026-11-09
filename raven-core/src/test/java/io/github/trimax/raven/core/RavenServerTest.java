@@ -2,7 +2,17 @@ package io.github.trimax.raven.core;
 
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import java.io.IOException;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.NetworkInterface;
+import java.net.Socket;
+import java.net.SocketException;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
@@ -21,6 +31,46 @@ class RavenServerTest {
     @Test
     void nullConfigurationThrowsNpe() {
         assertThrows(NullPointerException.class, () -> new RavenServer(null));
+    }
+
+    @Test
+    void listensOnlyOnTheBindAddress() throws IOException {
+        final var other = nonLoopbackAddress();
+        assumeTrue(other != null, "no non-loopback IPv4 address on this machine");
+
+        final var server = createServer(new NoOpServerHandler());
+        server.start();
+        try {
+            try (final var loopback = new Socket(InetAddress.getLoopbackAddress(), server.getPort())) {
+                assertTrue(loopback.isConnected());
+            }
+
+            // Bound to all addresses, this connect would succeed at once; here it is refused or, behind a firewall, times out
+            try (final var elsewhere = new Socket()) {
+                assertThrows(IOException.class, () -> elsewhere.connect(new InetSocketAddress(other, server.getPort()), 1_000));
+            }
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    void stopReleasesThePortAndDisconnectsEveryoneEvenIfOnDisconnectThrows() {
+        final var server = createServer(new NoOpServerHandler() {
+            @Override
+            public void onDisconnect(final Client client) {
+                throw new IllegalStateException("handler failure");
+            }
+        });
+        server.start();
+        final var port = server.getPort();
+        final var clients = List.of(connectedClient(port), connectedClient(port));
+        await().atMost(2, TimeUnit.SECONDS).until(() -> server.getClients().size() == 2);
+
+        server.stop();
+
+        await().atMost(5, TimeUnit.SECONDS).until(() -> clients.stream().noneMatch(RavenClient::isConnected));
+        assertThrows(IOException.class, () -> new Socket(InetAddress.getLoopbackAddress(), port).close());
     }
 
     @Test
@@ -239,8 +289,27 @@ class RavenServerTest {
         server.stop();
     }
 
+    private static RavenClient connectedClient(final int port) {
+        final var client = createClient("localhost", port, new ClientHandler() {
+            @Override
+            public void onConnect() {
+            }
+
+            @Override
+            public void onDisconnect() {
+            }
+
+            @Override
+            public void onMessage(final Message message) {
+            }
+        });
+        client.connect();
+        return client;
+    }
+
     private static RavenServer createServer(final ServerHandler handler) {
         return new RavenServer(RavenServerConfiguration.builder()
+                .bindAddress(InetAddress.getLoopbackAddress())
                 .port(0)
                 .handler(handler)
                 .build());
@@ -274,5 +343,17 @@ class RavenServerTest {
 
         @Override
         public void onMessage(final Message message) {}
+    }
+
+    private static InetAddress nonLoopbackAddress() throws SocketException {
+        for (final var networkInterface : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+            if (!networkInterface.isUp() || networkInterface.isLoopback())
+                continue;
+
+            for (final var address : Collections.list(networkInterface.getInetAddresses()))
+                if (address instanceof Inet4Address)
+                    return address;
+        }
+        return null;
     }
 }

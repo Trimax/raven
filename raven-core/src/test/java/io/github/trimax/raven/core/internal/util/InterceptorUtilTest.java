@@ -1,9 +1,10 @@
-package io.github.trimax.raven.core.util;
+package io.github.trimax.raven.core.internal.util;
 
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.net.InetAddress;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -16,6 +17,7 @@ import io.github.trimax.raven.core.Client;
 import io.github.trimax.raven.core.Message;
 import io.github.trimax.raven.core.RavenClient;
 import io.github.trimax.raven.core.RavenServer;
+import io.github.trimax.raven.core.TestMessage;
 import io.github.trimax.raven.core.config.RavenClientConfiguration;
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.handler.ClientHandler;
@@ -35,6 +37,7 @@ class InterceptorUtilTest {
     @BeforeAll
     static void setUp() {
         final var serverConfig = RavenServerConfiguration.builder()
+                .bindAddress(InetAddress.getLoopbackAddress())
                 .port(0)
                 .handler(new ServerHandler() {
                     @Override

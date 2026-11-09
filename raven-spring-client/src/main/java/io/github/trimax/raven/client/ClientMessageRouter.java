@@ -8,7 +8,6 @@ import org.springframework.stereotype.Component;
 import io.github.trimax.raven.core.Message;
 import io.github.trimax.raven.core.handler.ClientHandler;
 import io.github.trimax.raven.spring.AbstractMessageRouter;
-import lombok.extern.slf4j.Slf4j;
 
 /**
  * Client-side message router. Implements {@link ClientHandler} and dispatches
@@ -21,7 +20,6 @@ import lombok.extern.slf4j.Slf4j;
  *   <li>{@link SubscribeDisconnect} — {@code void method()}</li>
  * </ul>
  */
-@Slf4j
 @Component
 public final class ClientMessageRouter extends AbstractMessageRouter implements ClientHandler {
 

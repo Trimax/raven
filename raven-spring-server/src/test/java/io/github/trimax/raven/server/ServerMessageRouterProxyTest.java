@@ -4,6 +4,7 @@ import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
+import java.net.InetAddress;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
@@ -211,6 +212,7 @@ class ServerMessageRouterProxyTest {
         @Bean
         RavenServer ravenServer(final ServerMessageRouter router) {
             final var config = RavenServerConfiguration.builder()
+                    .bindAddress(InetAddress.getLoopbackAddress())
                     .port(0)
                     .handler(router)
                     .build();

@@ -3,7 +3,7 @@ package io.github.trimax.raven.core.validation;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
-import java.io.ObjectOutputStream;
+import java.net.InetAddress;
 import java.net.Socket;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -23,6 +23,7 @@ import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.exception.MessageValidationRavenException;
 import io.github.trimax.raven.core.handler.ClientHandler;
 import io.github.trimax.raven.core.handler.ServerHandler;
+import io.github.trimax.raven.core.internal.session.RawPeer;
 import io.github.trimax.raven.core.validation.annotation.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -43,6 +44,7 @@ class ValidationIntegrationTest {
     @BeforeEach
     void setUp() {
         final var config = RavenServerConfiguration.builder()
+                .bindAddress(InetAddress.getLoopbackAddress())
                 .port(0)
                 .handler(new ServerHandler() {
                     @Override
@@ -148,14 +150,14 @@ class ValidationIntegrationTest {
 
         // Use a raw socket to bypass RavenClient's send method validation
         try (final var socket = new Socket(HOST, port)) {
-            final var oos = new ObjectOutputStream(socket.getOutputStream());
+            final var output = socket.getOutputStream();
+            RawPeer.writeHello(output);
 
             // Wait for the server to register this raw connection
             await().atMost(2, TimeUnit.SECONDS).until(() -> !connectedClients.isEmpty());
 
             // Send an invalid message directly (bypasses MessageValidator.validateOrThrow)
-            oos.writeObject(new InvalidMessage());
-            oos.flush();
+            RawPeer.writeObject(output, new InvalidMessage());
 
             // Server receive loop should validate and drop the message — handler NOT called
             assertDoesNotArrive(serverReceivedMessages::isEmpty);

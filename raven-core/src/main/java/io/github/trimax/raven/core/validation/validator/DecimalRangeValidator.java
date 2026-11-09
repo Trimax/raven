@@ -33,7 +33,8 @@ public final class DecimalRangeValidator implements ConstraintValidator {
         final double min = decimalRange.min();
         final double max = decimalRange.max();
 
-        if (doubleValue < min || doubleValue > max)
+        // NaN compares false with every bound, so it would otherwise pass
+        if (Double.isNaN(doubleValue) || doubleValue < min || doubleValue > max)
             return new Violation(fieldName, DecimalRange.class,
                 "field '" + fieldName + "' must be >= " + min + " and <= " + max + ", got: " + doubleValue);
 
