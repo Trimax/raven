@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 
 import io.github.trimax.raven.core.codec.JavaSerializationCodec;
 import io.github.trimax.raven.core.codec.MessageCodec;
+import io.github.trimax.raven.core.config.DataSize;
 import io.github.trimax.raven.core.config.RavenClientConfiguration;
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.handler.ClientHandler;
@@ -59,7 +60,7 @@ class RavenSendEncodingTest {
                 .bindAddress(InetAddress.getLoopbackAddress())
                 .port(0)
                 .codec(codec)
-                .maxMessageSize(MAX_MESSAGE_SIZE)
+                .maxMessageSize(DataSize.ofBytes(MAX_MESSAGE_SIZE))
                 .handler(new ServerHandler() {
                     @Override
                     public void onConnect(final Client client) {
@@ -141,7 +142,7 @@ class RavenSendEncodingTest {
                 .host(InetAddress.getLoopbackAddress().getHostAddress())
                 .port(server.getPort())
                 .codec(codec)
-                .maxMessageSize(MAX_MESSAGE_SIZE)
+                .maxMessageSize(DataSize.ofBytes(MAX_MESSAGE_SIZE))
                 .handler(new ClientHandler() {
                     @Override
                     public void onConnect() {

@@ -13,6 +13,7 @@ import org.springframework.format.datetime.standard.DurationFormatterUtils;
 
 import io.github.trimax.raven.core.RavenServer;
 import io.github.trimax.raven.core.codec.MessageCodec;
+import io.github.trimax.raven.core.config.DataSize;
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.interceptor.ServerMessageInterceptor;
 import jakarta.annotation.PreDestroy;
@@ -28,7 +29,7 @@ import lombok.extern.slf4j.Slf4j;
  * Optional: {@code raven.server.bind-address}, a host name or IP address to listen on (defaults to all local addresses),
  * {@code raven.server.send-queue-capacity}, {@code raven.server.send-timeout}, e.g. {@code 5s} or {@code PT5S},
  * {@code raven.server.handshake-timeout}, how long a new connection may take to deliver its hello,
- * {@code raven.server.max-connections}, {@code raven.server.max-message-size} in bytes, and
+ * {@code raven.server.max-connections}, {@code raven.server.max-message-size} (e.g. {@code 16MB}), and
  * {@code raven.server.idle-timeout}, after which a client that sent nothing is disconnected; there is no heartbeat,
  * so this also disconnects healthy but silent clients (all but the bind address default to
  * {@link RavenServerConfiguration}'s values; the idle timeout is off by default). A {@link MessageCodec} bean, if
@@ -66,7 +67,7 @@ public final class RavenServerAutoConfiguration implements SmartInitializingSing
     private final String idleTimeout;
 
     @Value("${raven.server.max-message-size:#{null}}")
-    private final Integer maxMessageSize;
+    private final String maxMessageSize;
 
     private RavenServer server;
 
@@ -91,7 +92,7 @@ public final class RavenServerAutoConfiguration implements SmartInitializingSing
         if (idleTimeout != null)
             builder.idleTimeout(DurationFormatterUtils.detectAndParse(idleTimeout));
         if (maxMessageSize != null)
-            builder.maxMessageSize(maxMessageSize);
+            builder.maxMessageSize(DataSize.parse(maxMessageSize));
         // A MessageCodec bean replaces the default Java serialization
         final var customCodec = codec.getIfAvailable();
         if (customCodec != null)

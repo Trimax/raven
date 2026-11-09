@@ -45,11 +45,13 @@ abstract class AbstractRavenConfiguration {
     private final Duration idleTimeout = Duration.ZERO;
 
     /**
-     * Largest serialized message, in bytes, that may be sent or received. {@code send()} rejects a larger message,
-     * and a peer that announces a larger frame is disconnected. Must be at least 1; 16 MiB by default.
+     * Largest serialized message that may be sent or received. {@code send()} rejects a larger message, and a peer
+     * that announces a larger frame is disconnected. Between 1 byte and {@link Integer#MAX_VALUE} bytes; 16 MB by
+     * default.
      */
+    @NonNull
     @Builder.Default
-    private final int maxMessageSize = 16 * 1024 * 1024;
+    private final DataSize maxMessageSize = DataSize.ofMegabytes(16);
 
     /**
      * Turns messages into frames and back. Both sides of a connection must use compatible codecs.
@@ -82,8 +84,10 @@ abstract class AbstractRavenConfiguration {
         if (idleTimeout.toMillis() > Integer.MAX_VALUE)
             throw new IllegalArgumentException("idleTimeout is too large: " + idleTimeout);
 
-        if (maxMessageSize < 1)
-            throw new IllegalArgumentException("maxMessageSize must be at least 1, got " + maxMessageSize);
+        // A frame length is an int on the wire
+        if (maxMessageSize.toBytes() < 1 || maxMessageSize.toBytes() > Integer.MAX_VALUE)
+            throw new IllegalArgumentException("maxMessageSize must be between 1 byte and " + Integer.MAX_VALUE
+                    + " bytes, got " + maxMessageSize);
 
         validateSpecific();
     }

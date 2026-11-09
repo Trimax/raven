@@ -20,14 +20,14 @@ record SessionSettings(MessageCodec codec, Duration handshakeTimeout, Duration i
     static SessionSettings of(final RavenServerConfiguration configuration) {
         return new SessionSettings(configuration.getCodec(), configuration.getHandshakeTimeout(),
                 configuration.getIdleTimeout(), configuration.getSendQueueCapacity(), configuration.getSendTimeout(),
-                configuration.getMaxMessageSize(), Duration.ZERO);
+                (int) configuration.getMaxMessageSize().toBytes(), Duration.ZERO);
     }
 
     static SessionSettings of(final RavenClientConfiguration configuration) {
         // The connect timeout also bounds the hello exchange with the server
         return new SessionSettings(configuration.getCodec(), configuration.getConnectTimeout(),
                 configuration.getIdleTimeout(), configuration.getSendQueueCapacity(), configuration.getSendTimeout(),
-                configuration.getMaxMessageSize(), configuration.getConnectTimeout());
+                (int) configuration.getMaxMessageSize().toBytes(), configuration.getConnectTimeout());
     }
 
     /**

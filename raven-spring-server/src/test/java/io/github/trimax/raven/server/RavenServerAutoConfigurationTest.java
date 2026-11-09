@@ -111,8 +111,22 @@ class RavenServerAutoConfigurationTest {
     }
 
     @Test
+    void acceptsMaxMessageSizeWithUnit() {
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, "2KB");
+
+        assertDoesNotThrow(() -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs()));
+    }
+
+    @Test
+    void rejectsMalformedMaxMessageSize() {
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, "two kilobytes");
+
+        assertThrows(IllegalArgumentException.class, () -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs()));
+    }
+
+    @Test
     void rejectsZeroMaxMessageSize() {
-        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, 0);
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, "0B");
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs()));
     }
