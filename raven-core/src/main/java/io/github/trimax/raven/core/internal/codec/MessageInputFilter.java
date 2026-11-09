@@ -41,6 +41,7 @@ final class MessageInputFilter implements ObjectInputFilter {
     public Status checkInput(final FilterInfo info) {
         if (info.depth() > MAX_DEPTH)
             return reject(RejectedMessageException.exceededLimit(MAX_DEPTH + " levels of nesting"));
+
         if (info.references() > MAX_REFERENCES)
             return reject(RejectedMessageException.exceededLimit(MAX_REFERENCES + " object references"));
 
