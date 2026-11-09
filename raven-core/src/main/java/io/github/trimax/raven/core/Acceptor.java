@@ -77,7 +77,7 @@ final class Acceptor {
             try {
                 // A closed socket (stop) or an interrupt ends the loop; any other failure backs off and retries
                 socket = RetryUtil.execute(serverSocket::accept, ACCEPT_BACKOFF,
-                        exception -> !serverSocket.isClosed(), this::onAcceptFailure);
+                        _ -> !serverSocket.isClosed(), this::onAcceptFailure);
             } catch (final IOException ex) {
                 break;
             }
