@@ -5,8 +5,6 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.net.InetAddress;
 import java.net.Socket;
 import java.net.SocketException;
@@ -51,7 +49,7 @@ class RavenServerHandshakeTest {
         server.start();
 
         try (final var silent = new Socket("localhost", server.getPort())) {
-            // This peer connects at the TCP level but never sends its stream header
+            // This peer connects at the TCP level but never sends its hello
             final var clientConnected = new java.util.concurrent.atomic.AtomicBoolean(false);
             final var client = new RavenClient(RavenClientConfiguration.builder()
                     .host("localhost")
@@ -106,10 +104,10 @@ class RavenServerHandshakeTest {
 
         try (final var silent = new Socket("localhost", server.getPort())) {
             silent.setSoTimeout(5_000);
-            // The server writes its own stream header, then closes the socket after the handshake timeout
+            // The server writes its own hello, then closes the socket after the handshake timeout
             final var in = silent.getInputStream();
             while (in.read() != -1) {
-                // drain the server's stream header until end-of-stream
+                // drain the server's hello until end-of-stream
             }
         } finally {
             server.stop();
@@ -123,12 +121,13 @@ class RavenServerHandshakeTest {
 
         try (final var peer = new Socket("localhost", server.getPort())) {
             peer.setSoTimeout(5_000);
-            // Reading the server's stream header guarantees the handshake is in flight
-            final var in = new ObjectInputStream(peer.getInputStream());
+            // Reading the server's hello guarantees the handshake is in flight
+            final var in = peer.getInputStream();
+            RawPeer.readHello(in);
             server.stop();
 
             try {
-                new ObjectOutputStream(peer.getOutputStream()).flush();
+                RawPeer.writeHello(peer.getOutputStream());
             } catch (final IOException _) {
                 // the server may already have closed the socket
             }
@@ -146,7 +145,8 @@ class RavenServerHandshakeTest {
         final var server = startServer(connects, Duration.ofSeconds(30));
 
         try (final var silent = new Socket("localhost", server.getPort())) {
-            final var in = new ObjectInputStream(silent.getInputStream());
+            final var in = silent.getInputStream();
+            RawPeer.readHello(in);
             server.stop();
 
             // Without stop() closing it, the socket would linger until the 30 second handshake timeout
@@ -160,7 +160,7 @@ class RavenServerHandshakeTest {
 
     /**
      * Asserts that the server closed the connection. When the server closes a socket whose incoming data it has
-     * not read yet (here: our stream header), the OS sends a reset instead of a FIN, so the read either reports
+     * not read yet (here: our hello), the OS sends a reset instead of a FIN, so the read either reports
      * end-of-stream or fails with "Connection reset". A read timeout still fails the test: the socket stayed open.
      */
     private static void assertClosedByServer(final InputStream in) throws IOException {

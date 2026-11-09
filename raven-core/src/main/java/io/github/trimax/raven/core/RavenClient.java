@@ -1,27 +1,26 @@
 package io.github.trimax.raven.core;
 
-import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 
 import io.github.trimax.raven.core.config.RavenClientConfiguration;
 import io.github.trimax.raven.core.util.HandlingUtil;
-import io.github.trimax.raven.core.util.InterceptorUtil;
 import io.github.trimax.raven.core.util.MeasurementUtil;
 import io.github.trimax.raven.core.validation.MessageValidator;
 import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
  * Pure TCP client. Connects to a {@link RavenServer}, sends messages,
  * and delegates events to a {@link io.github.trimax.raven.core.handler.ClientHandler}.
  *
- * <p>Every connection gets its own virtual receive thread, named {@code raven-receiver}, and all handler callbacks of
- * that connection run on it in order: {@code onConnect}, then {@code onMessage} for each received message, then
- * {@code onDisconnect}. {@code onDisconnect} is called exactly once for every {@code onConnect} that returned
- * normally, however the session ended; a failing {@code onConnect} closes the connection and gets no
+ * <p>Every connection is a {@link Session} with its own virtual thread, named {@code raven-receiver}, and all handler
+ * callbacks of that connection run on it in order: {@code onConnect}, then {@code onMessage} for each received
+ * message, then {@code onDisconnect}. {@code onDisconnect} is called exactly once for every {@code onConnect} that
+ * returned normally, however the session ended; a failing {@code onConnect} closes the connection and gets no
  * {@code onDisconnect}. The callbacks of a new connection start only after {@code onDisconnect} of the previous one
  * has returned.
  *
@@ -31,191 +30,124 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public final class RavenClient {
 
-    /** Bound on the reception threads of a client, so that its methods called from a callback do not wait for it. */
-    private static final ScopedValue<RavenClient> CALLBACK_CLIENT = ScopedValue.newInstance();
-
     @NonNull
     private final RavenClientConfiguration configuration;
 
-    /** Guards {@link #session} updates and {@link #pendingConnect}. Never held while a callback runs or I/O blocks. */
+    private final SessionSettings settings;
+
+    /**
+     * Runs the session and writer threads. Never closed: its virtual threads end with their session, and an idle
+     * executor holds nothing, so it needs no shutdown.
+     */
+    private final ExecutorService threads = TransportThreads.newExecutor();
+
+    /** Guards {@link #session} updates. Never held while a callback runs or I/O blocks. */
     private final Object lock = new Object();
 
     /**
-     * Current session, or {@code null}. Written under {@link #lock}; volatile because {@link #send(Message)} reads it
-     * without the lock. A session whose connection has closed stays here until its reception thread detaches it.
+     * The latest session, possibly still connecting or already closed, or {@code null} before the first connect().
+     * Written under {@link #lock}; volatile because {@link #send(Message)} and {@link #isConnected()} read it without.
      */
     private volatile Session session;
-
-    /**
-     * The connection attempt in progress, aborted by {@link #disconnect()}. Guarded by {@link #lock}.
-     */
-    private final PendingConnect pendingConnect = new PendingConnect();
-
-    /**
-     * One connection and the progress of its callbacks.
-     *
-     * @param connection the connection
-     * @param previous   completes once the previous session has ended; this session's callbacks wait for it
-     * @param announced  completes once {@code onConnect} has returned or failed
-     * @param ended      completes once the session is over: {@code onDisconnect} has returned, or was never due
-     */
-    private record Session(Connection connection, CompletableFuture<Void> previous,
-                           CompletableFuture<Void> announced, CompletableFuture<Void> ended) {
-
-        Session(final Connection connection, final CompletableFuture<Void> previous) {
-            this(connection, previous, new CompletableFuture<>(), new CompletableFuture<>());
-        }
-    }
 
     public RavenClient(@NonNull final RavenClientConfiguration configuration) {
         configuration.validate();
 
         this.configuration = configuration;
+        this.settings = SessionSettings.of(configuration);
     }
 
     /**
      * Connects to the server. Does nothing if already connected or if another connection attempt is in progress.
      * <p>
-     * Network I/O runs outside the client's lock, so {@link #isConnected()}, {@link #send(Message)} and
+     * Network I/O runs on the session thread, so {@link #isConnected()}, {@link #send(Message)} and
      * {@link #disconnect()} remain responsive while a connection attempt is blocked.
      * {@link #disconnect()} aborts an attempt in progress.
      * <p>
      * Returns once {@code onConnect} of the new connection has run, which is after {@code onDisconnect} of the
-     * previous one. Called from a callback of this client, it returns without waiting, since the new connection's
-     * callbacks cannot start before the current callback returns.
+     * previous one, or once the attempt has failed. Called from a callback of this client, it returns without
+     * waiting, since the new connection's callbacks cannot start before the current callback returns.
      */
     public void connect() {
-        final PendingConnect.Attempt attempt;
-        synchronized (lock) {
-            attempt = isConnected() ? null : pendingConnect.begin();
-        }
-        if (attempt == null)
-            return;
-
-        final Connection newConnection;
-        try {
-            newConnection = openConnection(attempt.socket());
-        } catch (final IOException ex) {
-            if (finishAttempt(attempt))
-                log.warn("RavenClient failed to connect to {}:{} - {}", configuration.getHost(), configuration.getPort(), ex.getMessage());
-            else
-                logCancelled();
-            return;
-        } catch (final RuntimeException ex) {
-            // Otherwise every later connect() would see an attempt in progress and return
-            finishAttempt(attempt);
-            throw ex;
-        }
-
         final Session started;
         synchronized (lock) {
-            if (!pendingConnect.finish(attempt)) {
-                // disconnect() was called while the connection was being opened
-                newConnection.disconnect();
-                logCancelled();
+            final var previous = session;
+            if (previous != null && !previous.isClosed())
                 return;
-            }
 
-            // The previous session may still be ending: its connection has closed, but its reception thread has not
-            // reported onDisconnect yet. The new session waits for it, so the callbacks never overlap or reorder
-            final var previous = session == null ? CompletableFuture.<Void>completedFuture(null) : session.ended();
-            started = new Session(newConnection, previous);
+            // The previous session may still be ending: its socket has closed, but its thread has not reported
+            // onDisconnect yet. The new session waits for it, so the callbacks never overlap or reorder
+            final var previousEnded = previous == null ? CompletableFuture.<Void>completedFuture(null) : previous.ended();
+            // Resolved on the session thread, so a slow DNS lookup does not block the caller under the lock
+            final var target = InetSocketAddress.createUnresolved(configuration.getHost(), configuration.getPort());
+            started = Session.dialing(target, settings, new Callbacks(previousEnded));
             session = started;
-            log.info("RavenClient connected to {}:{}", configuration.getHost(), configuration.getPort());
-
-            Thread.ofVirtual().name("raven-receiver").start(() ->
-                    ScopedValue.where(CALLBACK_CLIENT, this).run(() -> runSession(started)));
+            started.start(threads);
         }
 
-        awaitUnlessCallback(started.announced());
-    }
-
-    private boolean finishAttempt(final PendingConnect.Attempt attempt) {
-        synchronized (lock) {
-            return pendingConnect.finish(attempt);
-        }
-    }
-
-    private void logCancelled() {
-        log.info("RavenClient connection attempt to {}:{} cancelled by disconnect", configuration.getHost(), configuration.getPort());
-    }
-
-    private Connection openConnection(final Socket socket) throws IOException {
-        final var connectTimeout = configuration.getConnectTimeout();
-        return HandlingUtil.closeOnFailure(socket, () -> {
-            socket.connect(new InetSocketAddress(configuration.getHost(), configuration.getPort()), (int) connectTimeout.toMillis());
-            // The connect timeout also bounds the stream-header exchange with the server
-            return Connection.open(socket, connectTimeout, configuration.getIdleTimeout(),
-                    configuration.getSendQueueCapacity(), configuration.getSendTimeout(), () -> { });
-        });
+        awaitUnlessCallback(started.opened());
     }
 
     /**
-     * Runs all callbacks of one session on its reception thread: {@code onConnect}, the reception loop, {@code onDisconnect}.
+     * Returns whether the client is currently connected to the server.
      */
-    private void runSession(final Session current) {
-        try {
-            current.previous().join();
-            // Closed by disconnect() or the peer before it was ever announced: there is nothing to report
-            if (!current.connection().isConnected()) {
-                detach(current);
-                return;
-            }
-
-            if (!announce(current))
-                return;
-
-            final var invalidMessages = new InvalidMessageLog("the server");
-            try {
-                ReceiveLoop.run(current.connection(), () -> true, message -> deliver(message, invalidMessages),
-                        () -> detach(current));
-            } finally {
-                invalidMessages.summarize();
-                // Even if the loop throws (e.g. a failing validator), every announced session reports its end once
-                log.info("RavenClient disconnected");
-                HandlingUtil.callHandler(configuration.getHandler()::onDisconnect, () -> "on disconnect");
-            }
-        } finally {
-            // Also releases connect() if the session ended before it was announced
-            current.announced().complete(null);
-            current.ended().complete(null);
-        }
+    public boolean isConnected() {
+        final var current = session;
+        return current != null && current.isOpen();
     }
 
     /**
-     * Calls {@code onConnect}; if it fails, closes the connection, which then gets no {@code onDisconnect}.
+     * Disconnects from the server, aborting a connection attempt in progress. Safe to call multiple times.
+     * <p>
+     * Returns once {@code onDisconnect} of the closed connection has run. Called from a callback of this client, it
+     * returns without waiting; {@code onDisconnect} then follows once the current callback returns.
+     */
+    public void disconnect() {
+        final Session current;
+        synchronized (lock) {
+            current = session;
+            // Closing the socket ends the session, whose thread then reports onDisconnect; interrupting it is
+            // not needed and would leave the interrupt flag set inside onDisconnect
+            if (current != null)
+                current.close();
+        }
+
+        if (current != null)
+            awaitUnlessCallback(current.ended());
+    }
+
+    /**
+     * Sends a message to the server. Thread-safe.
      *
-     * @return {@code true} if the session may proceed to its reception loop
+     * <p>The message is serialized on the calling thread before this method returns: later changes to it are not
+     * sent. Delivery is asynchronous: the call returns once the message is queued for the connection's writer.
+     * If that queue is full, it blocks for up to the configured {@code sendTimeout} (5 seconds by default) and then disconnects the stalled peer.
+     * Write errors are logged and close the connection rather than being thrown; messages still queued
+     * when a connection is closed are dropped.
+     *
+     * @param message the message to send
+     * @throws IllegalArgumentException if the message cannot be serialized or exceeds {@code maxMessageSize}
      */
-    private boolean announce(final Session current) {
-        final var announced = HandlingUtil.callHandler(configuration.getHandler()::onConnect,
-                () -> "on connect, closing the connection");
-        if (!announced) {
-            // Without this the client would look connected while no receiver is running
-            current.connection().disconnect();
-            detach(current);
+    public void send(final Message message) {
+        // Read the field once, so that a concurrent reconnect cannot swap the session mid-call
+        final var current = session;
+        if (current == null || !current.isOpen()) {
+            log.warn("Cannot send message: not connected");
+            return;
         }
 
-        current.announced().complete(null);
-        return announced;
+        MessageValidator.validateOrThrow(message);
+        final var frame = settings.encode(message);
+        MeasurementUtil.measure(() -> current.send(frame),
+                duration -> log.debug("Message queued in {}ms", duration.toMillis()));
     }
 
     /**
-     * Removes the session from the client unless a newer connect() has replaced it already.
-     */
-    private void detach(final Session ended) {
-        synchronized (lock) {
-            if (session == ended)
-                session = null;
-        }
-    }
-
-    /**
-     * Waits for a session milestone, unless the calling thread is one of this client's receive threads: that thread
+     * Waits for a session milestone, unless the calling thread is a session thread of this client: that thread
      * itself has to return from its callback before any milestone of this client can be reached.
      */
     private void awaitUnlessCallback(final CompletableFuture<Void> milestone) {
-        if (CALLBACK_CLIENT.isBound() && CALLBACK_CLIENT.get() == this)
+        if (TransportThreads.callbackListener() instanceof Callbacks callbacks && callbacks.client() == this)
             return;
 
         try {
@@ -230,80 +162,41 @@ public final class RavenClient {
     }
 
     /**
-     * Returns whether the client is currently connected to the server.
+     * Reports one session to the handler.
      */
-    public boolean isConnected() {
-        synchronized (lock) {
-            return session != null && session.connection().isConnected();
-        }
-    }
+    @RequiredArgsConstructor
+    private final class Callbacks implements SessionListener {
 
-    /**
-     * Disconnects from the server, aborting a connection attempt in progress. Safe to call multiple times.
-     * <p>
-     * Returns once {@code onDisconnect} of the closed connection has run. Called from a callback of this client, it
-     * returns without waiting; {@code onDisconnect} then follows once the current callback returns.
-     */
-    public void disconnect() {
-        final Session current;
-        synchronized (lock) {
-            pendingConnect.cancel();
-            current = session;
-            // Closing the socket ends the reception loop, whose thread then reports onDisconnect; interrupting it is
-            // not needed and would leave the interrupt flag set inside onDisconnect
-            if (current != null)
-                current.connection().disconnect();
+        /** Completes once the previous session has ended; this session's callbacks wait for it. */
+        private final CompletableFuture<Void> previousEnded;
+
+        private final InboundPipeline inbound = InboundPipeline.of(configuration);
+
+        RavenClient client() {
+            return RavenClient.this;
         }
 
-        if (current != null)
-            awaitUnlessCallback(current.ended());
-    }
+        @Override
+        public boolean onOpen(final Session session) {
+            previousEnded.join();
+            // Closed by disconnect() or the peer before it was ever announced: there is nothing to report
+            if (!session.isOpen())
+                return false;
 
-    /**
-     * Sends a message to the server. Thread-safe.
-     *
-     * <p>Delivery is asynchronous: the call returns once the message is queued for the connection's writer, which
-     * serializes it later, so the message must not be modified after this call.
-     * If that queue is full, it blocks for up to the configured {@code sendTimeout} (5 seconds by default) and then disconnects the stalled peer.
-     * Write errors are logged and close the connection rather than being thrown; messages still queued
-     * when a connection is closed are dropped.
-     *
-     * @param message the message to send
-     */
-    public void send(final Message message) {
-        // Read the field once, so that a concurrent session change cannot swap the connection mid-call
-        final var current = session;
-        send(current == null ? null : current.connection(), message);
-    }
-
-    private void send(final Connection currentConnection, final Message message) {
-        if (currentConnection == null || !currentConnection.isConnected()) {
-            log.warn("Cannot send message: not connected");
-            return;
+            log.info("RavenClient connected to {}:{}", configuration.getHost(), configuration.getPort());
+            return HandlingUtil.callHandler(configuration.getHandler()::onConnect, () -> "on connect, closing the connection");
         }
 
-        MessageValidator.validateOrThrow(message);
-        MeasurementUtil.measure(() -> currentConnection.send(message),
-                duration -> log.debug("Message queued in {}ms", duration.toMillis()));
-    }
-
-    /**
-     * Validates a received message, passes it through the interceptor chain and dispatches it to the handler.
-     *
-     * @return {@code false} if the handler failed and the session must end
-     */
-    private boolean deliver(final Message message, final InvalidMessageLog invalidMessages) {
-        final var violations = MessageValidator.validate(message);
-        if (!violations.isEmpty()) {
-            invalidMessages.log(message, violations);
-            return true;
+        @Override
+        public boolean onMessage(final Session session, final Message message) {
+            return inbound.deliver(message);
         }
 
-        if (!InterceptorUtil.shouldProceed(configuration.getInterceptors(), message))
-            return true;
-
-        // A failing handler ends this session; the reception loop then releases the connection
-        return HandlingUtil.callHandler(() -> configuration.getHandler().onMessage(message),
-                () -> "for received message, closing the connection");
+        @Override
+        public void onClose(final Session session) {
+            inbound.summarize();
+            log.info("RavenClient disconnected");
+            HandlingUtil.callHandler(configuration.getHandler()::onDisconnect, () -> "on disconnect");
+        }
     }
 }

@@ -72,7 +72,6 @@ class MessageInputFilterTest {
 
     @Test
     void rejectsTooManyReferencesInOneMessage() {
-        filter.startMessage();
         assertEquals(Status.ALLOWED, filter.checkInput(info(String.class, 1, 1, -1)));
         assertEquals(Status.REJECTED, filter.checkInput(info(String.class, 1, 2 + MessageInputFilter.MAX_REFERENCES, -1)));
     }
@@ -94,32 +93,12 @@ class MessageInputFilterTest {
     }
 
     @Test
-    void countsReferencesPerMessageNotPerStream() {
-        // The stream's reference counter keeps growing across messages; each message gets its own budget
-        filter.startMessage();
-        assertEquals(Status.ALLOWED, filter.checkInput(info(String.class, 1, 10, -1)));
-        filter.startMessage();
-        assertEquals(Status.ALLOWED, filter.checkInput(info(String.class, 1, 10 + MessageInputFilter.MAX_REFERENCES, -1)));
-        assertEquals(Status.REJECTED, filter.checkInput(
-                info(String.class, 1, 10 + 2 * MessageInputFilter.MAX_REFERENCES + 1, -1)));
-    }
-
-    @Test
     void sumsArrayElementsAcrossTheArraysOfOneMessage() {
         // Nested arrays are allocated level by level before their data arrives, so the budget is shared
         final var half = MessageInputFilter.MAX_ARRAY_ELEMENTS / 2;
-        filter.startMessage();
         assertEquals(Status.ALLOWED, filter.checkInput(info(long[][].class, 1, 1, half)));
         assertEquals(Status.ALLOWED, filter.checkInput(info(long[].class, 2, 2, half)));
         assertEquals(Status.REJECTED, filter.checkInput(info(long[].class, 2, 3, 1)));
-    }
-
-    @Test
-    void resetsTheArrayBudgetForTheNextMessage() {
-        filter.startMessage();
-        assertEquals(Status.ALLOWED, filter.checkInput(info(byte[].class, 1, 1, MessageInputFilter.MAX_ARRAY_ELEMENTS)));
-        filter.startMessage();
-        assertEquals(Status.ALLOWED, filter.checkInput(info(byte[].class, 1, 2, MessageInputFilter.MAX_ARRAY_ELEMENTS)));
     }
 
     @Test

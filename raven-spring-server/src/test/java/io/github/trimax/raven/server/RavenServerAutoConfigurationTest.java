@@ -5,8 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.Socket;
 import java.util.concurrent.TimeUnit;
@@ -63,9 +63,9 @@ class RavenServerAutoConfigurationTest {
         server.start();
         try (final var socket = new Socket(InetAddress.getLoopbackAddress(), server.getPort())) {
             // Completes the handshake, then stays silent
-            new ObjectOutputStream(socket.getOutputStream()).flush();
-            new ObjectInputStream(socket.getInputStream());
+            writeHello(socket);
             socket.setSoTimeout(3_000);
+            assertEquals(8, socket.getInputStream().readNBytes(8).length, "the server's hello");
 
             assertEquals(-1, socket.getInputStream().read(), "the server must close the idle connection");
         } finally {
@@ -79,9 +79,9 @@ class RavenServerAutoConfigurationTest {
                 .ravenServer(new ServerMessageRouter(), interceptors());
         server.start();
         try (final var socket = new Socket(InetAddress.getLoopbackAddress(), server.getPort())) {
-            // Never sends a stream header, so only the handshake timeout ends the connection
-            new ObjectInputStream(socket.getInputStream());
+            // Never sends a hello, so only the handshake timeout ends the connection
             socket.setSoTimeout(3_000);
+            assertEquals(8, socket.getInputStream().readNBytes(8).length, "the server's hello");
 
             final long started = System.nanoTime();
             assertEquals(-1, socket.getInputStream().read(), "the server must drop a connection that does not complete the handshake");
@@ -104,6 +104,16 @@ class RavenServerAutoConfigurationTest {
         final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, "never");
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenServer(new ServerMessageRouter(), interceptors()));
+    }
+
+    /**
+     * Sends the protocol hello: the magic bytes and the protocol version.
+     */
+    private static void writeHello(final Socket socket) throws IOException {
+        final var output = new DataOutputStream(socket.getOutputStream());
+        output.writeBytes("RAVN");
+        output.writeInt(2);
+        output.flush();
     }
 
     private static ObjectProvider<ServerMessageInterceptor> interceptors() {
