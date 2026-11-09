@@ -9,6 +9,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.format.datetime.standard.DurationFormatterUtils;
 
 import io.github.trimax.raven.core.RavenClient;
+import io.github.trimax.raven.core.codec.MessageCodec;
 import io.github.trimax.raven.core.config.RavenClientConfiguration;
 import io.github.trimax.raven.core.interceptor.ClientMessageInterceptor;
 import jakarta.annotation.PreDestroy;
@@ -22,9 +23,11 @@ import lombok.extern.slf4j.Slf4j;
  *
  * <p>Required properties: {@code raven.client.host}, {@code raven.client.port}.
  * Optional: {@code raven.client.connect-timeout} and {@code raven.client.send-timeout}, e.g. {@code 5s} or {@code PT5S},
- * {@code raven.client.send-queue-capacity}, and {@code raven.client.idle-timeout}, after which a connection on which
- * the server sent nothing is closed; there is no heartbeat, so this also closes a healthy but silent connection
- * (all default to {@link RavenClientConfiguration}'s values; the idle timeout is off by default).
+ * {@code raven.client.send-queue-capacity}, {@code raven.client.max-message-size} in bytes, and
+ * {@code raven.client.idle-timeout}, after which a connection on which the server sent nothing is closed; there is no
+ * heartbeat, so this also closes a healthy but silent connection (all default to {@link RavenClientConfiguration}'s
+ * values; the idle timeout is off by default). A {@link MessageCodec} bean, if present, replaces the default Java
+ * serialization.
  */
 @Slf4j
 @Configuration(proxyBeanMethods = false)
@@ -54,11 +57,15 @@ public final class RavenClientAutoConfiguration implements SmartInitializingSing
     @Value("${raven.client.idle-timeout:#{null}}")
     private final String idleTimeout;
 
+    @Value("${raven.client.max-message-size:#{null}}")
+    private final Integer maxMessageSize;
+
     private RavenClient client;
 
     @Bean
     public RavenClient ravenClient(final ClientMessageRouter router,
-                                   final ObjectProvider<ClientMessageInterceptor> interceptors) {
+                                   final ObjectProvider<ClientMessageInterceptor> interceptors,
+                                   final ObjectProvider<MessageCodec> codec) {
         final var builder = RavenClientConfiguration.builder()
                 .host(host)
                 .port(port)
@@ -73,6 +80,12 @@ public final class RavenClientAutoConfiguration implements SmartInitializingSing
             builder.sendTimeout(DurationFormatterUtils.detectAndParse(sendTimeout));
         if (idleTimeout != null)
             builder.idleTimeout(DurationFormatterUtils.detectAndParse(idleTimeout));
+        if (maxMessageSize != null)
+            builder.maxMessageSize(maxMessageSize);
+        // A MessageCodec bean replaces the default Java serialization
+        final var customCodec = codec.getIfAvailable();
+        if (customCodec != null)
+            builder.codec(customCodec);
 
         client = new RavenClient(builder.build());
         return client;
