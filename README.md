@@ -58,21 +58,29 @@ public class ServerApp { }
 Configure:
 ```properties
 raven.server.port=9090
+
 # Optional: listen on one address only, e.g. 127.0.0.1 (default: all local addresses)
 raven.server.bind-address=127.0.0.1
+
 # Optional: outgoing messages queued per client before send() applies back-pressure (default 1024)
 raven.server.send-queue-capacity=1024
+
 # Optional: how long send() waits for queue space before disconnecting a stalled client (default 5s)
 raven.server.send-timeout=5s
+
 # Optional: how long a new connection may take to complete the handshake before it is dropped (default 5s)
 raven.server.handshake-timeout=5s
+
 # Optional: connections served at once, handshakes included; further connections are closed at once (default 1024)
 raven.server.max-connections=1024
+
 # Optional: largest serialized message, e.g. 512KB or 16MB (binary units); send() rejects larger ones and a peer announcing one is disconnected (default 16MB)
 raven.server.max-message-size=16MB
+
 # Optional: packages whose plain classes the default codec may deserialize, with their subpackages (default: none);
 # "*" trusts every class, only for trusted networks. Ignored if a MessageCodec bean exists. See "Message Field Types"
 raven.server.trusted-packages=com.example.dto,org.acme
+
 # Optional: disconnect a client that sends nothing for this long (default 0 = off). There is no heartbeat,
 # so a healthy client that stays silent this long is disconnected too
 raven.server.idle-timeout=5m
@@ -119,17 +127,23 @@ Configure:
 ```properties
 raven.client.host=localhost
 raven.client.port=9090
+
 # Optional: limit for opening the connection and completing the handshake (default 10s)
 raven.client.connect-timeout=10s
+
 # Optional: outgoing messages queued before send() applies back-pressure (default 1024)
 raven.client.send-queue-capacity=1024
+
 # Optional: how long send() waits for queue space before disconnecting (default 5s)
 raven.client.send-timeout=5s
+
 # Optional: largest serialized message, e.g. 512KB or 16MB (default 16MB)
 raven.client.max-message-size=16MB
+
 # Optional: packages whose plain classes the default codec may deserialize, with their subpackages (default: none);
 # "*" trusts every class, only for trusted networks. Ignored if a MessageCodec bean exists. See "Message Field Types"
 raven.client.trusted-packages=com.example.dto,org.acme
+
 # Optional: disconnect if the server sends nothing for this long (default 0 = off). There is no heartbeat,
 # so a healthy but silent connection is closed too
 raven.client.idle-timeout=5m
