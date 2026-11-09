@@ -54,7 +54,7 @@ abstract class AbstractRavenConfiguration {
     private final DataSize maxMessageSize = DataSize.ofMegabytes(16);
 
     /**
-     * Turns messages into frames and back. Both sides of a connection must use compatible codecs.
+     * Turns messages into frame payloads and back. Both sides of a connection must use compatible codecs.
      * Defaults to Java serialization with a deserialization filter, see {@link JavaSerializationCodec}.
      */
     @NonNull

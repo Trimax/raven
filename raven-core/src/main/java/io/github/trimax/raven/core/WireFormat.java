@@ -15,7 +15,7 @@ import lombok.experimental.UtilityClass;
  * codec output.
  */
 @UtilityClass
-final class Frames {
+final class WireFormat {
 
     private final byte[] MAGIC = {'R', 'A', 'V', 'N'};
 
@@ -47,15 +47,15 @@ final class Frames {
     }
 
     /**
-     * Writes one frame without flushing.
+     * Writes one payload as a frame, without flushing.
      */
-    void writeFrame(final DataOutputStream output, final byte[] frame) throws IOException {
-        output.writeInt(frame.length);
-        output.write(frame);
+    void writeFrame(final DataOutputStream output, final byte[] payload) throws IOException {
+        output.writeInt(payload.length);
+        output.write(payload);
     }
 
     /**
-     * Reads one frame.
+     * Reads one frame and returns its payload.
      *
      * @param maxSize the largest payload accepted
      * @throws ProtocolException if the declared length is negative or larger than {@code maxSize}
@@ -67,10 +67,10 @@ final class Frames {
             throw new ProtocolException("Frame of " + length + " bytes, the limit is " + maxSize);
 
         // Grows with the bytes that actually arrive, so a peer cannot make us allocate a large frame by declaring one
-        final var frame = input.readNBytes(length);
-        if (frame.length < length)
+        final var payload = input.readNBytes(length);
+        if (payload.length < length)
             throw new EOFException("Connection closed within a frame");
 
-        return frame;
+        return payload;
     }
 }

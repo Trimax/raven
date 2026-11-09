@@ -50,7 +50,7 @@ class TransmitterTest {
 
         final var input = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()));
         for (int i = 0; i < count; i++)
-            assertArrayEquals(new byte[]{(byte) i}, Frames.readFrame(input, 1));
+            assertArrayEquals(new byte[]{(byte) i}, WireFormat.readFrame(input, 1));
         assertEquals(0, failures.get());
     }
 

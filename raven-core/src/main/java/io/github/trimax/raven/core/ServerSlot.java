@@ -78,16 +78,16 @@ final class ServerSlot {
     }
 
     /**
-     * Queues a frame for the given clients.
+     * Queues a payload for the given clients.
      *
      * @return {@code false} if the server is not running
      */
-    boolean send(final byte[] frame, final Set<UUID> recipients) {
+    boolean send(final byte[] payload, final Set<UUID> recipients) {
         final var run = current;
         if (run == null)
             return false;
 
-        run.send(frame, recipients);
+        run.send(payload, recipients);
         return true;
     }
 

@@ -25,7 +25,7 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * One connection, accepted by a server or dialed by a client. A single session thread owns its whole life cycle:
- * connecting, the hello exchange, reading frames, and every call to its {@link SessionListener}. Outgoing frames
+ * connecting, the hello exchange, reading frames, and every call to its {@link SessionListener}. Outgoing payloads
  * are written by its {@link Transmitter}.
  *
  * <p>{@link #close()} may be called from any thread at any time; it closes the socket, which aborts whatever the
@@ -119,13 +119,13 @@ final class Session {
     }
 
     /**
-     * Queues a frame for the peer and returns once it is queued; write errors close the session instead of being
+     * Queues a payload for the peer and returns once it is queued; write errors close the session instead of being
      * thrown. If the queue is full, waits up to the send timeout for space, then treats the peer as stalled and
      * closes the session. Dropped if the session is not open.
      */
-    void send(final byte[] frame) {
+    void send(final byte[] payload) {
         // A session closed while the sender waited is not a stalled peer, so it is not reported as one
-        if (isOpen() && !transmitter.offer(frame) && isOpen()) {
+        if (isOpen() && !transmitter.offer(payload) && isOpen()) {
             log.warn("Send queue full for {}, disconnecting stalled peer", settings.sendTimeout());
             close();
         }
@@ -189,8 +189,8 @@ final class Session {
         final var input = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
 
         // Both sides write their hello before reading the peer's, so neither waits for the other
-        Frames.writeHello(output);
-        Frames.readHello(input);
+        WireFormat.writeHello(output);
+        WireFormat.readHello(input);
 
         // From now on the socket timeout is the idle timeout, 0 (wait forever) unless configured
         socket.setSoTimeout(millis(settings.idleTimeout()));
@@ -201,7 +201,7 @@ final class Session {
 
     private void receive(final DataInputStream input) throws IOException {
         while (isOpen()) {
-            final var message = settings.codec().decode(Frames.readFrame(input, settings.maxMessageSize()));
+            final var message = settings.codec().decode(WireFormat.readFrame(input, settings.maxMessageSize()));
             // An allowed object that is not a message breaks the protocol just like a rejected one
             if (message == null || !listener.onMessage(this, message))
                 return;

@@ -82,15 +82,15 @@ final class ServerRuntime {
     }
 
     /**
-     * Queues one encoded frame for each recipient; the same bytes are shared by all of them.
+     * Queues the encoded payload for each recipient; the same bytes are shared by all of them.
      */
-    void send(final byte[] frame, final Set<UUID> recipients) {
+    void send(final byte[] payload, final Set<UUID> recipients) {
         for (final var recipientId : recipients) {
             final var session = sessions.get(recipientId);
             if (session == null)
                 log.warn("Cannot send message: client {} not found", recipientId);
             else
-                session.send(frame);
+                session.send(payload);
         }
     }
 

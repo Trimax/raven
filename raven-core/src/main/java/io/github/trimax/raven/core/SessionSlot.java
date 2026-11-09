@@ -65,11 +65,11 @@ final class SessionSlot {
     }
 
     /**
-     * Queues a frame on the current session; dropped if it is not open.
+     * Queues a payload on the current session; dropped if it is not open.
      */
-    void send(final byte[] frame) {
+    void send(final byte[] payload) {
         final var session = current;
         if (session != null)
-            session.send(frame);
+            session.send(payload);
     }
 }

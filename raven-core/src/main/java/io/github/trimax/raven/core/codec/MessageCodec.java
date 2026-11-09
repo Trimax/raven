@@ -15,7 +15,7 @@ public interface MessageCodec {
      * Serializes one message.
      *
      * @param message the message to send
-     * @return the frame payload
+     * @return the payload of one frame
      * @throws IOException if the message cannot be serialized
      */
     byte[] encode(Message message) throws IOException;
@@ -23,9 +23,9 @@ public interface MessageCodec {
     /**
      * Deserializes the payload of one frame received from an untrusted peer.
      *
-     * @param frame the frame payload
+     * @param payload the payload of one frame
      * @return the message, or {@code null} if the payload holds an allowed object that is not a {@link Message}
      * @throws IOException if the payload is corrupt or holds a rejected class; the connection is then closed
      */
-    Message decode(byte[] frame) throws IOException;
+    Message decode(byte[] payload) throws IOException;
 }

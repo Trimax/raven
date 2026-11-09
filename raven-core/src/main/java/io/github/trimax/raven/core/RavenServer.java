@@ -59,9 +59,9 @@ public final class RavenServer {
      */
     public void broadcast(final Message message) {
         MessageValidator.validateOrThrow(message);
-        final var frame = settings.encode(message);
+        final var payload = settings.encode(message);
 
-        MeasurementUtil.measure(() -> server.send(frame, server.ids()),
+        MeasurementUtil.measure(() -> server.send(payload, server.ids()),
                 duration -> log.debug("Message {} queued for broadcast in {}ms", message.getId(), duration.toMillis()));
     }
 
@@ -97,9 +97,9 @@ public final class RavenServer {
      */
     public void send(final Message message, final Set<UUID> recipients) {
         MessageValidator.validateOrThrow(message);
-        final var frame = settings.encode(message);
+        final var payload = settings.encode(message);
 
-        if (!server.send(frame, recipients))
+        if (!server.send(payload, recipients))
             log.warn("Cannot send message: server is not running");
     }
 

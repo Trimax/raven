@@ -128,18 +128,18 @@ class JavaSerializationCodecTest {
 
     @Test
     void rejectsMessagesWhoseArraysExceedTheElementBudget() throws IOException {
-        final var frame = codec.encode(new BigArraysMessage());
+        final var payload = codec.encode(new BigArraysMessage());
 
-        assertThrows(InvalidClassException.class, () -> codec.decode(frame));
+        assertThrows(InvalidClassException.class, () -> codec.decode(payload));
     }
 
     @Test
     void limitsApplyPerMessage() throws IOException {
         // Each message nearly exhausts the array budget, so a budget shared between messages would reject the second
-        final var frame = codec.encode(new AlmostFullMessage());
+        final var payload = codec.encode(new AlmostFullMessage());
 
-        assertInstanceOf(AlmostFullMessage.class, codec.decode(frame));
-        assertInstanceOf(AlmostFullMessage.class, codec.decode(frame));
+        assertInstanceOf(AlmostFullMessage.class, codec.decode(payload));
+        assertInstanceOf(AlmostFullMessage.class, codec.decode(payload));
     }
 
     @Test

@@ -89,8 +89,8 @@ public final class RavenClient {
         }
 
         MessageValidator.validateOrThrow(message);
-        final var frame = settings.encode(message);
-        MeasurementUtil.measure(() -> session.send(frame),
+        final var payload = settings.encode(message);
+        MeasurementUtil.measure(() -> session.send(payload),
                 duration -> log.debug("Message queued in {}ms", duration.toMillis()));
     }
 }

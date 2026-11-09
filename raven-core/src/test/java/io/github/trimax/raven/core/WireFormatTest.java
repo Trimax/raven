@@ -13,17 +13,17 @@ import java.net.ProtocolException;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for {@link Frames}, on in-memory streams.
+ * Unit tests for {@link WireFormat}, on in-memory streams.
  */
 class FramesTest {
 
     @Test
     void acceptsItsOwnHello() throws IOException {
         final var bytes = new ByteArrayOutputStream();
-        Frames.writeHello(new DataOutputStream(bytes));
+        WireFormat.writeHello(new DataOutputStream(bytes));
 
         assertEquals(8, bytes.size());
-        assertDoesNotThrow(() -> Frames.readHello(input(bytes.toByteArray())));
+        assertDoesNotThrow(() -> WireFormat.readHello(input(bytes.toByteArray())));
     }
 
     @Test
@@ -31,7 +31,7 @@ class FramesTest {
         // What a 1.4.x peer sends first: the Java serialization stream header
         final var objectStreamHeader = new byte[]{(byte) 0xAC, (byte) 0xED, 0x00, 0x05, 0x73, 0x72, 0x00, 0x01};
 
-        assertThrows(ProtocolException.class, () -> Frames.readHello(input(objectStreamHeader)));
+        assertThrows(ProtocolException.class, () -> WireFormat.readHello(input(objectStreamHeader)));
     }
 
     @Test
@@ -39,45 +39,45 @@ class FramesTest {
         final var bytes = new ByteArrayOutputStream();
         final var output = new DataOutputStream(bytes);
         output.writeBytes("RAVN");
-        output.writeInt(Frames.PROTOCOL_VERSION + 1);
+        output.writeInt(WireFormat.PROTOCOL_VERSION + 1);
 
-        final var ex = assertThrows(ProtocolException.class, () -> Frames.readHello(input(bytes.toByteArray())));
-        assertTrue(ex.getMessage().contains(String.valueOf(Frames.PROTOCOL_VERSION + 1)));
+        final var ex = assertThrows(ProtocolException.class, () -> WireFormat.readHello(input(bytes.toByteArray())));
+        assertTrue(ex.getMessage().contains(String.valueOf(WireFormat.PROTOCOL_VERSION + 1)));
     }
 
     @Test
     void reportsATruncatedHello() {
-        assertThrows(EOFException.class, () -> Frames.readHello(input(new byte[]{'R', 'A'})));
+        assertThrows(EOFException.class, () -> WireFormat.readHello(input(new byte[]{'R', 'A'})));
     }
 
     @Test
     void roundTripsFramesInOrder() throws IOException {
         final var bytes = new ByteArrayOutputStream();
         final var output = new DataOutputStream(bytes);
-        Frames.writeFrame(output, new byte[]{1, 2, 3});
-        Frames.writeFrame(output, new byte[0]);
-        Frames.writeFrame(output, new byte[]{4});
+        WireFormat.writeFrame(output, new byte[]{1, 2, 3});
+        WireFormat.writeFrame(output, new byte[0]);
+        WireFormat.writeFrame(output, new byte[]{4});
 
         final var input = input(bytes.toByteArray());
-        assertArrayEquals(new byte[]{1, 2, 3}, Frames.readFrame(input, 3));
-        assertArrayEquals(new byte[0], Frames.readFrame(input, 3));
-        assertArrayEquals(new byte[]{4}, Frames.readFrame(input, 3));
-        assertThrows(EOFException.class, () -> Frames.readFrame(input, 3));
+        assertArrayEquals(new byte[]{1, 2, 3}, WireFormat.readFrame(input, 3));
+        assertArrayEquals(new byte[0], WireFormat.readFrame(input, 3));
+        assertArrayEquals(new byte[]{4}, WireFormat.readFrame(input, 3));
+        assertThrows(EOFException.class, () -> WireFormat.readFrame(input, 3));
     }
 
     @Test
     void rejectsAnOversizeFrame() throws IOException {
-        assertThrows(ProtocolException.class, () -> Frames.readFrame(input(frame(5, new byte[5])), 4));
+        assertThrows(ProtocolException.class, () -> WireFormat.readFrame(input(frame(5, new byte[5])), 4));
     }
 
     @Test
     void rejectsANegativeLength() throws IOException {
-        assertThrows(ProtocolException.class, () -> Frames.readFrame(input(frame(-1, new byte[0])), 4));
+        assertThrows(ProtocolException.class, () -> WireFormat.readFrame(input(frame(-1, new byte[0])), 4));
     }
 
     @Test
     void reportsATruncatedFrame() throws IOException {
-        assertThrows(EOFException.class, () -> Frames.readFrame(input(frame(10, new byte[3])), 16));
+        assertThrows(EOFException.class, () -> WireFormat.readFrame(input(frame(10, new byte[3])), 16));
     }
 
     @Test
@@ -86,7 +86,7 @@ class FramesTest {
         // OutOfMemoryError, while reading what arrives fails cleanly at the end of the three bytes
         final var input = input(frame(Integer.MAX_VALUE, new byte[3]));
 
-        assertThrows(EOFException.class, () -> Frames.readFrame(input, Integer.MAX_VALUE));
+        assertThrows(EOFException.class, () -> WireFormat.readFrame(input, Integer.MAX_VALUE));
     }
 
     private static byte[] frame(final int declaredLength, final byte[] payload) throws IOException {

@@ -12,7 +12,7 @@ import io.github.trimax.raven.core.util.ThreadUtil;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Writes the outgoing frames of one {@link Session} on its own virtual thread, in the order they were offered, so
+ * Writes the outgoing payloads of one {@link Session} on its own virtual thread, in the order they were offered, so
  * the sender never waits for the network. The queue is bounded: {@link #offer(byte[])} waits up to the send timeout
  * for space and reports a peer that stays stalled.
  */
@@ -31,7 +31,7 @@ final class Transmitter {
     private volatile Thread writer;
 
     /**
-     * @param capacity    maximum number of frames waiting to be written
+     * @param capacity    maximum number of payloads waiting to be written
      * @param sendTimeout how long {@link #offer(byte[])} waits for space in a full queue
      */
     Transmitter(final int capacity, final Duration sendTimeout, final Runnable onFailure) {
@@ -48,7 +48,7 @@ final class Transmitter {
     }
 
     /**
-     * Stops the writer thread. Frames still queued are dropped, which also wakes senders waiting for space.
+     * Stops the writer thread. WireFormat still queued are dropped, which also wakes senders waiting for space.
      */
     void stop() {
         stopped = true;
@@ -59,15 +59,15 @@ final class Transmitter {
     }
 
     /**
-     * Queues a frame, waiting up to the send timeout for space if the queue is full.
-     * If the calling thread is interrupted while waiting, the frame is dropped and the interrupt is restored;
+     * Queues a payload, waiting up to the send timeout for space if the queue is full.
+     * If the calling thread is interrupted while waiting, the payload is dropped and the interrupt is restored;
      * that is not a stalled peer, so it is reported as success.
      *
      * @return {@code false} if the queue stayed full for the whole send timeout
      */
-    boolean offer(final byte[] frame) {
+    boolean offer(final byte[] payload) {
         try {
-            final var queued = queue.offer(frame, sendTimeout.toMillis(), TimeUnit.MILLISECONDS);
+            final var queued = queue.offer(payload, sendTimeout.toMillis(), TimeUnit.MILLISECONDS);
             // A sender woken by stop() takes one freed slot; clearing again wakes the next waiting sender too
             if (queued && stopped)
                 queue.clear();
@@ -84,8 +84,8 @@ final class Transmitter {
         writer = Thread.currentThread();
         try {
             while (!stopped) {
-                Frames.writeFrame(output, queue.take());
-                // Frames queued meanwhile go out in the same flush
+                WireFormat.writeFrame(output, queue.take());
+                // WireFormat queued meanwhile go out in the same flush
                 if (queue.isEmpty())
                     output.flush();
             }

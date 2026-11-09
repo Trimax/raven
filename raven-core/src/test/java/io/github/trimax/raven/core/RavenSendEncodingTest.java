@@ -46,9 +46,9 @@ class RavenSendEncodingTest {
         }
 
         @Override
-        public Message decode(final byte[] frame) throws IOException {
+        public Message decode(final byte[] payload) throws IOException {
             decodes.incrementAndGet();
-            return delegate.decode(frame);
+            return delegate.decode(payload);
         }
     };
 

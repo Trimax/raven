@@ -32,8 +32,8 @@ public final class JavaSerializationCodec implements MessageCodec {
     }
 
     @Override
-    public Message decode(final byte[] frame) throws IOException {
-        try (final var input = new ObjectInputStream(new ByteArrayInputStream(frame))) {
+    public Message decode(final byte[] payload) throws IOException {
+        try (final var input = new ObjectInputStream(new ByteArrayInputStream(payload))) {
             input.setObjectInputFilter(new MessageInputFilter());
 
             final var object = input.readObject();

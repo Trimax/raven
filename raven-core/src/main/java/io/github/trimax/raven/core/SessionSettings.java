@@ -31,23 +31,23 @@ record SessionSettings(MessageCodec codec, Duration handshakeTimeout, Duration i
     }
 
     /**
-     * Encodes a message into a frame on the calling thread, so the frame is a snapshot of the message as it is now.
+     * Encodes a message into a payload on the calling thread, so the payload is a snapshot of the message as it is now.
      *
      * @throws IllegalArgumentException if the message cannot be serialized or is larger than {@code maxMessageSize}
      */
     byte[] encode(final Message message) {
-        final byte[] frame;
+        final byte[] payload;
         try {
-            frame = codec.encode(message);
+            payload = codec.encode(message);
         } catch (final IOException ex) {
             // The codec writes to memory, so a failure is about the message itself, e.g. a non-serializable field
             throw new IllegalArgumentException("Cannot serialize " + message.getClass().getName() + ": " + ex, ex);
         }
 
-        if (frame.length > maxMessageSize)
-            throw new IllegalArgumentException(message.getClass().getName() + " is " + frame.length
+        if (payload.length > maxMessageSize)
+            throw new IllegalArgumentException(message.getClass().getName() + " is " + payload.length
                     + " bytes serialized, more than maxMessageSize " + maxMessageSize);
 
-        return frame;
+        return payload;
     }
 }

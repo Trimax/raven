@@ -18,11 +18,11 @@ import lombok.experimental.UtilityClass;
 public final class RawPeer {
 
     public void writeHello(final OutputStream output) throws IOException {
-        Frames.writeHello(new DataOutputStream(output));
+        WireFormat.writeHello(new DataOutputStream(output));
     }
 
     public void readHello(final InputStream input) throws IOException {
-        Frames.readHello(new DataInputStream(input));
+        WireFormat.readHello(new DataInputStream(input));
     }
 
     /**
@@ -30,7 +30,7 @@ public final class RawPeer {
      */
     public void writeObject(final OutputStream output, final Object object) throws IOException {
         final var data = new DataOutputStream(output);
-        Frames.writeFrame(data, serialize(object));
+        WireFormat.writeFrame(data, serialize(object));
         data.flush();
     }
 

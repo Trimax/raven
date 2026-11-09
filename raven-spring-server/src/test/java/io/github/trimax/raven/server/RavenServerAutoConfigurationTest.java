@@ -145,8 +145,8 @@ class RavenServerAutoConfigurationTest {
             }
 
             @Override
-            public Message decode(final byte[] frame) throws IOException {
-                return delegate.decode(frame);
+            public Message decode(final byte[] payload) throws IOException {
+                return delegate.decode(payload);
             }
         });
         final var server = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, null)
