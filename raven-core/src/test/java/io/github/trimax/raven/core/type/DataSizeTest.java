@@ -1,4 +1,4 @@
-package io.github.trimax.raven.core.config;
+package io.github.trimax.raven.core.type;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;

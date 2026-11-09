@@ -4,6 +4,7 @@ import java.time.Duration;
 
 import io.github.trimax.raven.core.codec.JavaSerializationCodec;
 import io.github.trimax.raven.core.codec.MessageCodec;
+import io.github.trimax.raven.core.type.DataSize;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NonNull;

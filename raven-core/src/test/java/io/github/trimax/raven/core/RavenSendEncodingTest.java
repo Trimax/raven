@@ -16,11 +16,11 @@ import org.junit.jupiter.api.Test;
 
 import io.github.trimax.raven.core.codec.JavaSerializationCodec;
 import io.github.trimax.raven.core.codec.MessageCodec;
-import io.github.trimax.raven.core.config.DataSize;
 import io.github.trimax.raven.core.config.RavenClientConfiguration;
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.handler.ClientHandler;
 import io.github.trimax.raven.core.handler.ServerHandler;
+import io.github.trimax.raven.core.type.DataSize;
 
 /**
  * Verifies that {@code send()} encodes on the calling thread: serialization errors reach the caller, a message is

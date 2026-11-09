@@ -13,9 +13,9 @@ import org.springframework.format.datetime.standard.DurationFormatterUtils;
 
 import io.github.trimax.raven.core.RavenServer;
 import io.github.trimax.raven.core.codec.MessageCodec;
-import io.github.trimax.raven.core.config.DataSize;
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.interceptor.ServerMessageInterceptor;
+import io.github.trimax.raven.core.type.DataSize;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

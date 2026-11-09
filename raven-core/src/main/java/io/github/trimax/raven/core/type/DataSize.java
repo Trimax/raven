@@ -1,4 +1,4 @@
-package io.github.trimax.raven.core.config;
+package io.github.trimax.raven.core.type;
 
 import java.util.Locale;
 import java.util.regex.Pattern;
