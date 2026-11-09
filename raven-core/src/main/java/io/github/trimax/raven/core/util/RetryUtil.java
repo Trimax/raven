@@ -50,7 +50,7 @@ public final class RetryUtil {
      */
     public static <R, E extends Exception> R execute(final ThrowingSupplier<R, E> operation,
                                                      final RetryStrategy strategy) throws E {
-        return execute(operation, strategy, exception -> true, (attempt, exception) -> { });
+        return execute(operation, strategy, _ -> true, (_, _) -> { });
     }
 
     /**
