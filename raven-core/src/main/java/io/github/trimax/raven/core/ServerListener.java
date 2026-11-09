@@ -19,7 +19,7 @@ final class ServerListener implements SessionListener {
 
     @Override
     public boolean onOpen(final Session session) {
-        client = new Client(session);
+        client = new ClientSession(session);
         inbound = InboundPipeline.of(configuration, client);
 
         log.info("Client connected: {} ({})", client.getId(), session.remoteAddress());
