@@ -12,6 +12,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.format.datetime.standard.DurationFormatterUtils;
 
 import io.github.trimax.raven.core.RavenServer;
+import io.github.trimax.raven.core.codec.JavaSerializationCodec;
 import io.github.trimax.raven.core.codec.MessageCodec;
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.interceptor.ServerMessageInterceptor;
@@ -69,6 +70,10 @@ public final class RavenServerAutoConfiguration implements SmartInitializingSing
     @Value("${raven.server.max-message-size:#{null}}")
     private final String maxMessageSize;
 
+    /** Whether the default codec deserializes records; ignored when a {@link MessageCodec} bean is present. */
+    @Value("${raven.server.allow-records:true}")
+    private final boolean allowRecords;
+
     private RavenServer server;
 
     @Bean
@@ -97,6 +102,8 @@ public final class RavenServerAutoConfiguration implements SmartInitializingSing
         final var customCodec = codec.getIfAvailable();
         if (customCodec != null)
             builder.codec(customCodec);
+        else if (!allowRecords)
+            builder.codec(JavaSerializationCodec.withoutRecords());
 
         server = new RavenServer(builder.build());
         return server;

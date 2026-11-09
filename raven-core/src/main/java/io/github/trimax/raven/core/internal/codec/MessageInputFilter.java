@@ -84,7 +84,18 @@ public final class MessageInputFilter implements ObjectInputFilter {
             "java.util.ImmutableCollections$Map1", "java.util.ImmutableCollections$MapN");
 
     /** Array elements declared so far by the message. */
+    /** Whether records are trusted: the JVM rebuilds them only through their canonical constructor. */
+    private final boolean allowRecords;
+
     private long arrayElements;
+
+    /**
+     * @param allowRecords whether any {@link Record} may be deserialized; records are rebuilt through their canonical
+     *                     constructor and never run a {@code readObject}, and their components are still filtered
+     */
+    public MessageInputFilter(final boolean allowRecords) {
+        this.allowRecords = allowRecords;
+    }
 
     @Override
     public Status checkInput(final FilterInfo info) {
@@ -104,7 +115,7 @@ public final class MessageInputFilter implements ObjectInputFilter {
         return isAllowed(type) ? Status.ALLOWED : Status.REJECTED;
     }
 
-    private static boolean isAllowed(final Class<?> type) {
+    private boolean isAllowed(final Class<?> type) {
         var component = type;
         while (component.isArray())
             component = component.getComponentType();
@@ -116,6 +127,7 @@ public final class MessageInputFilter implements ObjectInputFilter {
             return true;
 
         return Message.class.isAssignableFrom(component)
+                || allowRecords && component.isRecord()
                 || Enum.class.isAssignableFrom(component)
                 || ALLOWED_JDK_TYPES.contains(component)
                 || ALLOWED_SUPERCLASSES.contains(component)

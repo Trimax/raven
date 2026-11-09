@@ -20,7 +20,7 @@ import io.github.trimax.raven.core.Message;
  */
 class MessageInputFilterTest {
 
-    private final MessageInputFilter filter = new MessageInputFilter();
+    private final MessageInputFilter filter = new MessageInputFilter(true);
 
     static final class PingMessage extends Message {
     }
@@ -85,6 +85,23 @@ class MessageInputFilterTest {
     @Test
     void allowsTheSuperclassOfTheBoxedNumbers() {
         assertEquals(Status.ALLOWED, check(Number.class));
+    }
+
+    /** A record, as a DTO carried inside a message would be. */
+    record Point(int x, int y) implements Serializable {
+    }
+
+    @Test
+    void allowsRecordsAndArraysOfRecords() {
+        assertEquals(Status.ALLOWED, check(Point.class));
+        assertEquals(Status.ALLOWED, check(Point[].class));
+    }
+
+    @Test
+    void rejectsRecordsWhenNotAllowed() {
+        final var strict = new MessageInputFilter(false);
+
+        assertEquals(Status.REJECTED, strict.checkInput(info(Point.class, 1, 1, -1)));
     }
 
     @Test

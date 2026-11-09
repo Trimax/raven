@@ -70,6 +70,8 @@ raven.server.handshake-timeout=5s
 raven.server.max-connections=1024
 # Optional: largest serialized message, e.g. 512KB or 16MB (binary units); send() rejects larger ones and a peer announcing one is disconnected (default 16MB)
 raven.server.max-message-size=16MB
+# Optional: let the default codec deserialize records (default true); see "Message Field Types" below
+raven.server.allow-records=true
 # Optional: disconnect a client that sends nothing for this long (default 0 = off). There is no heartbeat,
 # so a healthy client that stays silent this long is disconnected too
 raven.server.idle-timeout=5m
@@ -124,6 +126,8 @@ raven.client.send-queue-capacity=1024
 raven.client.send-timeout=5s
 # Optional: largest serialized message, e.g. 512KB or 16MB (default 16MB)
 raven.client.max-message-size=16MB
+# Optional: let the default codec deserialize records (default true); see "Message Field Types" below
+raven.client.allow-records=true
 # Optional: disconnect if the server sends nothing for this long (default 0 = off). There is no heartbeat,
 # so a healthy but silent connection is closed too
 raven.client.idle-timeout=5m
@@ -293,6 +297,25 @@ MessageRouter: 3 message type(s), 0 connect handler(s), 0 disconnect handler(s)
 - **Validation**: constraint annotations on fields declared in abstract superclasses are validated together with the fields of the concrete class.
 - **Serialization**: messages use Java serialization, so the fields of every class in the chain are transmitted and the concrete type is restored on the receiving side. Lombok `@SuperBuilder` and `final` fields work as usual.
 - Declare an explicit `serialVersionUID` in the intermediate class as well. Otherwise the client and the server may compute different values if they are built separately, and deserialization fails with `InvalidClassException`.
+
+## Message Field Types
+
+The peer is untrusted, so the default codec deserializes only these types; anything else closes the connection
+as a protocol violation:
+
+- `Message` subclasses, also nested in other messages
+- **records** (`implements Serializable`), e.g. DTOs carried inside messages — disable with `allow-records: false` or
+  `JavaSerializationCodec.withoutRecords()`. Records are safe to allow: the JVM rebuilds a record only through its
+  canonical constructor and never runs a `readObject` for it, and its components must be allowed types too
+- enums, primitives and arrays of allowed types
+- `String`, boxed primitives, `UUID`, `BigInteger`, `BigDecimal`, `Instant`, `Duration`, `LocalDate`, `LocalTime`,
+  `LocalDateTime`
+- `ArrayList`, `LinkedList`, `HashMap`, `LinkedHashMap`, `HashSet`, `LinkedHashSet`, and the immutable
+  `List.of` / `Set.of` / `Map.of` / `stream().toList()` collections
+
+Not allowed, for example: plain DTO classes that are neither messages nor records, `TreeMap`, `EnumMap`,
+`Collections.unmodifiableList(...)`, `Collections.singletonList(...)`, `Arrays.asList(...)`, `ZonedDateTime`.
+Per message, at most 64 levels of nesting, 100 000 object references and 2^20 array elements in total.
 
 ## Message Validation
 

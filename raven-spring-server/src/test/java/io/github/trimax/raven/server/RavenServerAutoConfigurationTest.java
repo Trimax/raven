@@ -28,7 +28,7 @@ class RavenServerAutoConfigurationTest {
 
     @Test
     void appliesConfiguredBindAddress() throws Exception {
-        final var server = new RavenServerAutoConfiguration(0, "127.0.0.1", null, null, null, null, null, null).ravenServer(new ServerMessageRouter(), interceptors(), codecs());
+        final var server = new RavenServerAutoConfiguration(0, "127.0.0.1", null, null, null, null, null, null, true).ravenServer(new ServerMessageRouter(), interceptors(), codecs());
         server.start();
         try (final var socket = new Socket(InetAddress.getLoopbackAddress(), server.getPort())) {
             assertTrue(socket.isConnected());
@@ -39,14 +39,14 @@ class RavenServerAutoConfigurationTest {
 
     @Test
     void acceptsMissingBindAddress() {
-        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, null);
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, null, true);
 
         assertDoesNotThrow(() -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void rejectsUnresolvableBindAddress() {
-        final var configuration = new RavenServerAutoConfiguration(0, "no such host.invalid", null, null, null, null, null, null);
+        final var configuration = new RavenServerAutoConfiguration(0, "no such host.invalid", null, null, null, null, null, null, true);
 
         final var ex = assertThrows(IllegalArgumentException.class,
                 () -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs()));
@@ -55,14 +55,14 @@ class RavenServerAutoConfigurationTest {
 
     @Test
     void rejectsZeroMaxConnections() {
-        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, 0, null, null);
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, 0, null, null, true);
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void appliesConfiguredIdleTimeout() throws Exception {
-        final var server = new RavenServerAutoConfiguration(0, "127.0.0.1", null, null, null, null, "300ms", null)
+        final var server = new RavenServerAutoConfiguration(0, "127.0.0.1", null, null, null, null, "300ms", null, true)
                 .ravenServer(new ServerMessageRouter(), interceptors(), codecs());
         server.start();
         try (final var socket = new Socket(InetAddress.getLoopbackAddress(), server.getPort())) {
@@ -79,7 +79,7 @@ class RavenServerAutoConfigurationTest {
 
     @Test
     void appliesConfiguredHandshakeTimeout() throws Exception {
-        final var server = new RavenServerAutoConfiguration(0, "127.0.0.1", null, null, "300ms", null, null, null)
+        final var server = new RavenServerAutoConfiguration(0, "127.0.0.1", null, null, "300ms", null, null, null, true)
                 .ravenServer(new ServerMessageRouter(), interceptors(), codecs());
         server.start();
         try (final var socket = new Socket(InetAddress.getLoopbackAddress(), server.getPort())) {
@@ -98,35 +98,35 @@ class RavenServerAutoConfigurationTest {
 
     @Test
     void rejectsZeroHandshakeTimeout() {
-        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, "0s", null, null, null);
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, "0s", null, null, null, true);
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void rejectsMalformedIdleTimeout() {
-        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, "never", null);
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, "never", null, true);
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void acceptsMaxMessageSizeWithUnit() {
-        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, "2KB");
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, "2KB", true);
 
         assertDoesNotThrow(() -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void rejectsMalformedMaxMessageSize() {
-        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, "two kilobytes");
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, "two kilobytes", true);
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void rejectsZeroMaxMessageSize() {
-        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, "0B");
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, "0B", true);
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs()));
     }
@@ -149,7 +149,7 @@ class RavenServerAutoConfigurationTest {
                 return delegate.decode(payload);
             }
         });
-        final var server = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, null)
+        final var server = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, null, true)
                 .ravenServer(new ServerMessageRouter(), interceptors(), beans.getBeanProvider(MessageCodec.class));
 
         // A broadcast is encoded even when nobody is connected

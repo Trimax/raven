@@ -44,6 +44,27 @@ class JavaSerializationCodecTest {
     static final class Payload implements Serializable {
     }
 
+    /** Records as DTOs: nested, in lists, with enum and time components. */
+    record Slot(int index, TimeUnit unit, LocalDateTime joined) implements Serializable {
+    }
+
+    record Lobby(UUID id, String name, List<Slot> slots) implements Serializable {
+    }
+
+    /** A record whose component is not an allowed type. */
+    record Carrier(Payload payload) implements Serializable {
+    }
+
+    static final class LobbyMessage extends Message {
+        private final Lobby lobby = new Lobby(UUID.randomUUID(), "lobby",
+                List.of(new Slot(0, TimeUnit.SECONDS, LocalDateTime.of(2026, 1, 1, 12, 0)), new Slot(1, TimeUnit.MINUTES, null)));
+        private final List<Lobby> lobbies = new ArrayList<>(List.of(lobby, new Lobby(UUID.randomUUID(), "empty", List.of())));
+    }
+
+    static final class CarrierMessage extends Message {
+        private final Carrier carrier = new Carrier(new Payload());
+    }
+
     /** A message with the mutable collection types the filter allows. */
     static final class CollectionsMessage extends Message {
         private final List<String> list = new ArrayList<>(List.of("a", "b"));
@@ -119,6 +140,29 @@ class JavaSerializationCodecTest {
         assertEquals(sent.immutableSetN, received.immutableSetN);
         assertArrayEquals(sent.numbers, received.numbers);
         assertArrayEquals(sent.names, received.names);
+    }
+
+    @Test
+    void roundTripsRecords() throws IOException {
+        final var sent = new LobbyMessage();
+        final var received = assertInstanceOf(LobbyMessage.class, codec.decode(codec.encode(sent)));
+
+        assertEquals(sent.lobby, received.lobby);
+        assertEquals(sent.lobbies, received.lobbies);
+    }
+
+    @Test
+    void stillFiltersTheComponentsOfRecords() throws IOException {
+        final var payload = codec.encode(new CarrierMessage());
+
+        assertThrows(InvalidClassException.class, () -> codec.decode(payload));
+    }
+
+    @Test
+    void rejectsRecordsWithoutRecords() throws IOException {
+        final var strict = JavaSerializationCodec.withoutRecords();
+
+        assertThrows(InvalidClassException.class, () -> strict.decode(strict.encode(new LobbyMessage())));
     }
 
     @Test
