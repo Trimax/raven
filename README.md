@@ -18,9 +18,9 @@ Dedicated to my friend — the best 3D artist I know: https://www.deviantart.com
 ## Modules
 
 | Module                | Description                                                                                         |
-|-----------------------|-----------------------------------------------------------------------------------------------------|
-| `raven-core`          | Pure Java transport: `RavenServer`, `RavenClient`, `Message`, `Client`                              |
-| `raven-spring-core`   | Spring base: `AbstractMessageRouter`, `HandlerMethod`                                               |
+|-----------------------|----------------------------------------------------------------------------------------------------------------|
+| `raven-core`          | Pure Java transport: `RavenServer`, `RavenClient`, `Message`, `Client` (interface), `MessageCodec`, validation |
+| `raven-spring-core`   | Spring base: `AbstractMessageRouter`                                                                |
 | `raven-spring-server` | Server-side router + annotations (`@SubscribeMessage`, `@SubscribeConnect`, `@SubscribeDisconnect`) |
 | `raven-spring-client` | Client-side router + annotations (`@SubscribeMessage`, `@SubscribeConnect`, `@SubscribeDisconnect`) |
 
@@ -29,9 +29,12 @@ Dedicated to my friend — the best 3D artist I know: https://www.deviantart.com
 ### 1. Define a message
 
 ```java
+@SuperBuilder
 public final class PingMessage extends Message {
 }
 
+@Getter
+@SuperBuilder
 public final class PongMessage extends Message {
     private final long serverTime;
 }
@@ -44,7 +47,7 @@ Add dependency:
 <dependency>
     <groupId>io.github.trimax</groupId>
     <artifactId>raven-spring-server</artifactId>
-    <version>1.4.1</version>
+    <version>1.5.0</version>
 </dependency>
 ```
 
@@ -88,6 +91,7 @@ raven.server.idle-timeout=5m
 
 Write a handler:
 ```java
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public final class PingHandler {
@@ -95,7 +99,7 @@ public final class PingHandler {
 
     @SubscribeMessage(PingMessage.class)
     public void onPing(Client sender, PingMessage message) {
-        server.send(new PongMessage(System.currentTimeMillis()), sender.getId());
+        server.send(PongMessage.builder().serverTime(System.currentTimeMillis()).build(), sender.getId());
     }
 
     @SubscribeConnect
@@ -112,7 +116,7 @@ Add dependency:
 <dependency>
     <groupId>io.github.trimax</groupId>
     <artifactId>raven-spring-client</artifactId>
-    <version>1.4.1</version>
+    <version>1.5.0</version>
 </dependency>
 ```
 
@@ -151,6 +155,7 @@ raven.client.idle-timeout=5m
 
 Write a handler:
 ```java
+@Slf4j
 @Component
 public final class PongHandler {
 
@@ -168,51 +173,83 @@ public final class PongHandler {
 
 ### 4. Without Spring (pure Java)
 
+Add dependency (it brings `slf4j-api` and `commons-io`):
+```xml
+<dependency>
+    <groupId>io.github.trimax</groupId>
+    <artifactId>raven-core</artifactId>
+    <version>1.5.0</version>
+</dependency>
+```
+
 ```java
-var serverConfig = RavenServerConfiguration.builder()
+// The handlers refer to the server and the client, so hold them in references set after construction
+final var server = new AtomicReference<RavenServer>();
+server.set(new RavenServer(RavenServerConfiguration.builder()
     .port(9090)
     .handler(new ServerHandler() {
         public void onConnect(Client client) { }
         public void onDisconnect(Client client) { }
         public void onMessage(Client sender, Message message) {
-            server.send(new PongMessage(), sender.getId());
+            server.get().send(PongMessage.builder().serverTime(System.currentTimeMillis()).build(), sender.getId());
         }
     })
-    .interceptors(List.of((sender, message) -> {
-        // reject unauthenticated messages, etc.
-        return true;
-    }))
-    .build();
-var server = new RavenServer(serverConfig);
-server.start();
+    .interceptors(List.of((sender, message) -> true)) // e.g. reject unauthenticated messages
+    .build()));
+server.get().start();
 
-var clientConfig = RavenClientConfiguration.builder()
+final var client = new AtomicReference<RavenClient>();
+client.set(new RavenClient(RavenClientConfiguration.builder()
     .host("localhost")
     .port(9090)
     .handler(new ClientHandler() {
-        public void onConnect() { client.send(new PingMessage()); }
+        public void onConnect() { client.get().send(PingMessage.builder().build()); }
         public void onDisconnect() { }
         public void onMessage(Message message) { }
     })
-    .build();
-var client = new RavenClient(clientConfig);
-client.connect();
+    .build()));
+client.get().connect();
 ```
 
 ## Send API
 
 ```java
 // Broadcast to all connected clients
-server.send(message);
+server.broadcast(message);
 
 // Send a message to specific client(s)
 server.send(message, clientId);
 server.send(message, clientA, clientB);
+server.send(message, Set.of(clientA, clientB));
+
+// Client to server
+client.send(message);
 ```
+
+Sends are asynchronous: each connection has a queue (`sendQueueCapacity`, default 1024) drained by its own writer
+thread. When the queue is full, `send()` waits up to `sendTimeout` (default 5s) per recipient and then disconnects
+that stalled peer. Write errors close the connection instead of being thrown; messages still queued when a
+connection closes are dropped. `server.send(message)` without recipients sends nothing — use `broadcast()`.
+Sending on a disconnected client or a stopped server logs a warning and drops the message.
+
+## Threading and Lifecycle
+
+- All callbacks of one connection run on that connection's own virtual thread, in order: `onConnect`, then
+  `onMessage` for each received message, then `onDisconnect`. `onDisconnect` runs exactly once for every
+  `onConnect` that returned normally.
+- `connect()`, `disconnect()` and `stop()` return once the corresponding callbacks have run (`stop()` waits for the
+  `onDisconnect` of every client). Called from inside a Raven callback, they return without waiting.
+- A received message passes validation, then the interceptors (in list order; the first that returns `false` or
+  throws stops it), then the handler.
+- A `ServerHandler` / `ClientHandler` callback that throws closes its connection; an `onConnect` that throws gets no
+  `onDisconnect`. Spring `@Subscribe*` methods are isolated: an exception is logged and the other handlers still run.
+- `connect()` does not throw: a failed attempt is logged and `isConnected()` stays `false`. There is no automatic
+  reconnect (the Spring client connects once at startup); call `connect()` again yourself.
 
 ## Wire Format
 
-Each side of a connection first sends a hello (the bytes `RAVN` and the protocol version, an `int`),
+Each side of a connection first sends a hello (the bytes `RAVN` and the protocol version, an `int`, currently 2;
+bounded by `handshake-timeout` on the server and `connect-timeout` on the client),
 then every message travels as one frame: its length as an `int`, followed by the encoded message. A peer whose hello
 does not match, or that announces a frame larger than `maxMessageSize`, is disconnected. This format is **not**
 compatible with Raven 1.4.x, which wrote one long Java object stream: server and clients must be upgraded together.
@@ -265,9 +302,6 @@ The message parameter must be the annotated type or one of its supertypes (e.g. 
 @Getter
 @SuperBuilder(toBuilder = true)
 public abstract class GameRequest extends Message {
-    @Serial
-    private static final long serialVersionUID = 1L;
-
     @NotNull
     private final UUID gameId;
 }
@@ -293,7 +327,7 @@ public final class GameRequestHandler {
 For an incoming message, Raven walks the superclass chain of its concrete class and invokes handlers level by level:
 
 1. handlers registered for the concrete class (e.g. `OrderPlaceRequest`);
-2. handlers registered for each superclass, from the nearest one upwards (e.g. `GameRequest`);
+2. handlers registered for each superclass, from the nearest one upward (e.g. `GameRequest`);
 3. handlers registered for `Message` (catch-all), always last.
 
 Within one level, handlers run in registration order. Each handler method is invoked at most once per message. Handlers registered for a subclass never receive messages of a sibling subclass. Only the superclass chain is considered; interfaces are not.
@@ -313,7 +347,7 @@ MessageRouter: 3 message type(s), 0 connect handler(s), 0 disconnect handler(s)
 
 - **Validation**: constraint annotations on fields declared in abstract superclasses are validated together with the fields of the concrete class.
 - **Serialization**: messages use Java serialization, so the fields of every class in the chain are transmitted and the concrete type is restored on the receiving side. Lombok `@SuperBuilder` and `final` fields work as usual.
-- Declare an explicit `serialVersionUID` in the intermediate class as well. Otherwise the client and the server may compute different values if they are built separately, and deserialization fails with `InvalidClassException`.
+- Declare an explicit `serialVersionUID` in the intermediate class as well. Otherwise, the client and the server may compute different values if they are built separately, and deserialization fails with `InvalidClassException`.
 
 ## Message Field Types
 
@@ -346,7 +380,7 @@ peer's data. `*` trusts **every class on the class path**, which reopens Java de
 The receiving side logs each rejection once, with the class or limit and a hint, then closes the connection:
 
 ```
-WARN Session -- Rejected class com.example.Unit in a message from /10.0.0.7:51234, closing the connection:
+WARN io.github.trimax.raven.core.internal.session.Session -- Rejected class com.example.Unit in a message from /10.0.0.7:51234, closing the connection:
 not a Message, record, enum or allowed JDK type. If the class is yours, trust its package:
 raven.server.trusted-packages / raven.client.trusted-packages=com.example or new JavaSerializationCodec(Set.of("com.example"))
 ```
@@ -363,14 +397,14 @@ Raven includes a declarative, annotation-based validation framework. Annotate me
 | `@NotBlank`               | String                          | Not null and not blank (whitespace only) |
 | `@NotEmpty`               | String, Collection, Array       | Not null and not empty                   |
 | `@Length(min, max)`       | String                          | Length within [min, max]                 |
-| `@Size(min, max)`         | Collection                      | Size within [min, max]                   |
+| `@Size(min, max)`         | Collection (not Map or array)   | Size within [min, max]                   |
 | `@Min(value)`             | Number (byte, short, int, long) | `field >= value`                         |
 | `@Max(value)`             | Number (byte, short, int, long) | `field <= value`                         |
 | `@Range(min, max)`        | Number (byte, short, int, long) | Within [min, max]                        |
 | `@DecimalMin(value)`      | Number (float, double)          | `field >= value`                         |
 | `@DecimalMax(value)`      | Number (float, double)          | `field <= value`                         |
 | `@DecimalRange(min, max)` | Number (float, double)          | Within [min, max]                        |
-| `@Matches(pattern)`       | String                          | Matches regex pattern                    |
+| `@Matches(value)`         | String                          | Matches the regex `value`                |
 | `@Email`                  | String                          | Valid email format                       |
 | `@Valid`                  | Object, Collection, Array       | Recursively validates nested object(s)   |
 
@@ -433,12 +467,12 @@ Nested collections and arrays are supported recursively — e.g. `@Valid` on `It
 ```java
 try {
     client.send(message);
-} catch (MessageValidationException e) {
+} catch (MessageValidationRavenException e) {
     System.err.println("Validation failed: " + e.getViolations());
 }
 ```
 
-`MessageValidationRavenException` contains a list of `Violation` records, each with the field name, constraint name, and a human-readable message.
+`MessageValidationRavenException` (package `io.github.trimax.raven.core.exception`) contains a list of `Violation` records, each with the field name, constraint name, and a human-readable message.
 
 ### Null Handling
 
@@ -450,7 +484,7 @@ try {
 
 **Send path** — `RavenClient.send()` and `RavenServer.send()` call `MessageValidator.validateOrThrow()` before sending. If validation fails, a `MessageValidationRavenException` is thrown and the message is NOT sent over the network.
 
-**Receive path** — After a message is received, `MessageValidator.validate()` is called. If validation fails, a WARN is logged with the message type and violation details, and the message is silently dropped (handlers are not invoked).
+**Receive path** — After a message is received, `MessageValidator.validate()` is called. If validation fails, a WARN is logged with the message type and violation details (further invalid messages from the same peer are logged at DEBUG, with a summary when the connection closes), and the message is dropped before interceptors and handlers run.
 
 ### Dataflow
 
@@ -535,7 +569,8 @@ flowchart LR
 ## Java Modules
 
 `raven-core` is a named module, `io.github.trimax.raven.core`. It exports only the API packages
-(`io.github.trimax.raven.core` and its subpackages such as `config`, `codec`, `handler`, `validation`, `util`);
+(`io.github.trimax.raven.core` and its subpackages `codec`, `config`, `exception`, `handler`, `interceptor`, `type`,
+`util`, `validation`);
 the implementation in `io.github.trimax.raven.core.internal` is not exported.
 
 Validation reads the annotated fields of your messages reflectively, so a modular application must open its message
@@ -551,6 +586,29 @@ module com.example.app {
 ```
 
 On the class path nothing changes. The Spring integration (`raven-spring-*`) has no module descriptor and runs on the class path.
+
+## Security
+
+Raven has no transport encryption and no authentication. Run it on a trusted network, bind the server to a loopback
+or private interface (`bind-address`), or tunnel it (TLS proxy, VPN, mTLS sidecar). Use interceptors for
+application-level authentication. Deserialization is restricted (see "Message Field Types"), and connections,
+handshakes and message sizes are limited by default.
+
+## Upgrading from 1.4.x
+
+- The wire protocol changed (framed, `RAVN` hello, protocol version 2): 1.4.x peers are rejected, so upgrade the
+  server and all clients together.
+- Deserialization is restricted: records and the types listed in "Message Field Types" work as is; plain (non-record)
+  DTO classes need `trusted-packages`; replace `Collections.unmodifiable*`, `Collections.singletonList`,
+  `Arrays.asList`, `TreeMap` and `EnumMap` in message fields with supported collections.
+- `Client` is now an interface: recompile code built against 1.4.x (otherwise `IncompatibleClassChangeError`).
+- `send()` / `broadcast()` are asynchronous and throw `IllegalArgumentException` for messages that cannot be
+  serialized or exceed `maxMessageSize` (16MB).
+- `connect()`, `disconnect()` and `stop()` wait for their callbacks (see "Threading and Lifecycle").
+- New limits are on by default: `maxConnections` 1024, `handshakeTimeout` 5s, `connectTimeout` 10s.
+- Raven now depends on `commons-io` 2.22.0; if your build enforces dependency convergence, pin it.
+- Transport loggers moved under `io.github.trimax.raven.core.internal.*`; adjust logging configuration that names
+  them explicitly.
 
 ## Requirements
 
