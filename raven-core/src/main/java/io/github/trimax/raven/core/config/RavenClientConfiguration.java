@@ -33,7 +33,7 @@ public final class RavenClientConfiguration extends AbstractRavenConfiguration {
     private final List<ClientMessageInterceptor> interceptors = List.of();
 
     /**
-     * Maximum time to establish the TCP connection and to receive the server's stream header.
+     * Maximum time to establish the TCP connection and to receive the server's hello.
      * Must be at least one millisecond and no larger than {@link Integer#MAX_VALUE} milliseconds (about 24.8 days).
      */
     @NonNull

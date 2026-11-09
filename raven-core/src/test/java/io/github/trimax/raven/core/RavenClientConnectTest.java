@@ -3,7 +3,6 @@ package io.github.trimax.raven.core;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.IOException;
-import java.io.ObjectOutputStream;
 import java.io.UncheckedIOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
@@ -26,7 +25,7 @@ class RavenClientConnectTest {
 
     @Test
     void blockedConnectAttemptDoesNotBlockOtherCalls() throws Exception {
-        // The server accepts the connection but never writes its stream header, so the handshake blocks
+        // The server accepts the connection but never writes its hello, so the handshake blocks
         try (final var listener = new ServerSocket(0, 0, InetAddress.getLoopbackAddress())) {
             final var client = newClient(listener.getLocalPort(), Duration.ofSeconds(5), new AtomicInteger());
             final var accepted = acceptAsync(listener);
@@ -78,7 +77,7 @@ class RavenClientConnectTest {
 
                 // Completing the handshake now must not resurrect the connection
                 try {
-                    new ObjectOutputStream(serverSide.getOutputStream()).flush();
+                    RawPeer.writeHello(serverSide.getOutputStream());
                 } catch (final IOException ignored) {
                     // The client may already have closed its end
                 }

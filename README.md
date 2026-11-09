@@ -9,7 +9,7 @@ Dedicated to my friend — the best 3D artist I know: https://www.deviantart.com
 
 - Pure Java TCP transport (no Spring required)
 - Virtual threads for scalable I/O
-- Java Serialization over ObjectStream
+- Length-prefixed frames; Java serialization with a deserialization filter by default, or your own `MessageCodec`
 - Annotation-based message dispatch for Spring applications
 - Hierarchy-aware routing: a handler for a (possibly abstract) base class receives all its subclasses
 - Separate server and client routers with signature validation at startup
@@ -68,6 +68,8 @@ raven.server.send-timeout=5s
 raven.server.handshake-timeout=5s
 # Optional: connections served at once, handshakes included; further connections are closed at once (default 1024)
 raven.server.max-connections=1024
+# Optional: largest serialized message, e.g. 512KB or 16MB (binary units); send() rejects larger ones and a peer announcing one is disconnected (default 16MB)
+raven.server.max-message-size=16MB
 # Optional: disconnect a client that sends nothing for this long (default 0 = off). There is no heartbeat,
 # so a healthy client that stays silent this long is disconnected too
 raven.server.idle-timeout=5m
@@ -120,6 +122,8 @@ raven.client.connect-timeout=10s
 raven.client.send-queue-capacity=1024
 # Optional: how long send() waits for queue space before disconnecting (default 5s)
 raven.client.send-timeout=5s
+# Optional: largest serialized message, e.g. 512KB or 16MB (default 16MB)
+raven.client.max-message-size=16MB
 # Optional: disconnect if the server sends nothing for this long (default 0 = off). There is no heartbeat,
 # so a healthy but silent connection is closed too
 raven.client.idle-timeout=5m
@@ -185,6 +189,22 @@ server.send(message);
 server.send(message, clientId);
 server.send(message, clientA, clientB);
 ```
+
+## Wire Format
+
+Each side of a connection first sends a hello (the bytes `RAVN` and the protocol version, an `int`),
+then every message travels as one frame: its length as an `int`, followed by the encoded message. A peer whose hello
+does not match, or that announces a frame larger than `maxMessageSize`, is disconnected. This format is **not**
+compatible with Raven 1.4.x, which wrote one long Java object stream: server and clients must be upgraded together.
+
+Messages are encoded by the configured `MessageCodec` (`RavenServerConfiguration.builder().codec(...)`, or a
+`MessageCodec` bean with the Spring autoconfiguration). The default `JavaSerializationCodec` writes each message as a
+self-contained Java serialization stream and reads it through a filter that only admits `Message` subclasses, enums
+and a fixed set of JDK value types and collections.
+
+`send()` and `broadcast()` encode the message on the calling thread before they return, so a message changed after
+the call is sent as it was. A message that cannot be serialized, or is larger than `maxMessageSize`, makes them
+throw `IllegalArgumentException`; `broadcast()` encodes once and shares the bytes among all recipients.
 
 ## Handler Signatures
 
@@ -389,14 +409,14 @@ flowchart TD
     A["<b>RavenServer.start()</b><br/><br/>Opens a server socket and starts listening"]
     B["<b>Virtual Thread: raven-accept</b><br/><br/>Waits for incoming connections in a loop"]
     C["<b>ServerSocket.accept()</b><br/><br/>Blocks until a new client connects"]
-    D["<b>Client</b><br/><br/>Wraps the socket and assigns a unique ID"]
+    D["<b>Session (Virtual Thread: raven-client-UUID)</b><br/><br/>Exchanges hellos; wrapped in a Client with a unique ID"]
     E["<b>ServerHandler.onConnect()</b><br/><br/>Notifies the application about new client"]
 
     A --> B --> C --> D --> E
 
-    subgraph loop ["receive loop (Virtual Thread: raven-client-UUID)"]
+    subgraph loop ["receive loop (same session thread)"]
         direction TB
-        G["<b>Connection.receive()</b><br/><br/>Blocks waiting for the next message"]
+        G["<b>Session</b><br/><br/>Reads the next frame and decodes it"]
         H["<b>MessageValidator.validate()</b><br/><br/>Checks message fields against constraints"]
         I["<b>ServerHandler.onMessage()</b><br/><br/>Delivers the message to the application"]
         J["<b>Logger</b><br/><br/>Logs a warning and drops the message"]
@@ -407,7 +427,7 @@ flowchart TD
     end
 
     E --> loop
-    G -->|null / error| K["<b>RavenServer.disconnectClient()</b><br/><br/>Cleans up resources and notifies the application"]
+    G -->|null / error| K["<b>ServerHandler.onDisconnect()</b><br/><br/>Session closed; notifies the application"]
 ```
 
 #### Client
@@ -420,14 +440,14 @@ config:
 ---
 flowchart TD
     A["<b>RavenClient.connect()</b><br/><br/>Opens a socket to the server"]
-    B["<b>Connection</b><br/><br/>Initializes object streams over the socket"]
+    B["<b>Session</b><br/><br/>Connects and exchanges hellos with the server"]
     C["<b>ClientHandler.onConnect()</b><br/><br/>Notifies the application about successful connection"]
 
     A --> B --> C
 
     subgraph loop ["receive loop (Virtual Thread: raven-receiver)"]
         direction TB
-        E["<b>Connection.receive()</b><br/><br/>Blocks waiting for the next message"]
+        E["<b>Session</b><br/><br/>Reads the next frame and decodes it"]
         F["<b>MessageValidator.validate()</b><br/><br/>Checks message fields against constraints"]
         G["<b>ClientHandler.onMessage()</b><br/><br/>Delivers the message to the application"]
         H["<b>Logger</b><br/><br/>Logs a warning and drops the message"]
@@ -438,7 +458,7 @@ flowchart TD
     end
 
     C --> loop
-    E -->|null / error| I["<b>RavenClient.disconnect()</b><br/><br/>Cleans up resources and notifies the application"]
+    E -->|null / error| I["<b>ClientHandler.onDisconnect()</b><br/><br/>Session closed; notifies the application"]
 ```
 
 #### Sending a message
@@ -451,7 +471,7 @@ config:
 ---
 flowchart LR
     A["<b>RavenClient.send() / RavenServer.send()</b><br/><br/>Application wants to send a message"] --> B["<b>MessageValidator.validateOrThrow()</b><br/><br/>Checks message fields against constraints"]
-    B -->|valid| C["<b>Connection.send()</b><br/><br/>Serializes and writes to the socket"]
+    B -->|valid| C["<b>MessageCodec.encode()</b><br/><br/>Serializes on the caller thread; the session's writer sends the frame"]
     B -->|invalid| D["<b>MessageValidationRavenException</b><br/><br/>Thrown back to the caller"]
 ```
 

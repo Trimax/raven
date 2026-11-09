@@ -27,11 +27,10 @@ import io.github.trimax.raven.core.Message;
  * internal classes they need on the wire) and enums are accepted.
  * Any other class (including classes that are typically used as deserialization gadgets) is rejected
  * before its constructor or {@code readObject} logic runs. Structural limits protect against
- * resource-exhaustion payloads; they apply per message, not per stream, so a long-lived connection is
- * never rejected just for having carried many messages.
+ * resource-exhaustion payloads.
  *
- * <p>One instance serves one stream and is used only by the thread reading it: call {@link #startMessage()}
- * before each top-level {@code readObject}.
+ * <p>One instance serves one message: every message is read from its own stream, so the stream's counters and
+ * this filter's array budget are the totals of that message. Used only by the thread reading it.
  */
 public final class MessageInputFilter implements ObjectInputFilter {
 
@@ -82,27 +81,12 @@ public final class MessageInputFilter implements ObjectInputFilter {
             "java.util.ImmutableCollections$Set12", "java.util.ImmutableCollections$SetN",
             "java.util.ImmutableCollections$Map1", "java.util.ImmutableCollections$MapN");
 
-    /** Stream reference count when the current message started, or -1 until its first object is checked. */
-    private long referencesAtStart = -1;
-
-    /** Array elements declared so far by the current message. */
+    /** Array elements declared so far by the message. */
     private long arrayElements;
-
-    /**
-     * Starts the limits for the next top-level message. Call before each {@code readObject}.
-     */
-    public void startMessage() {
-        referencesAtStart = -1;
-        arrayElements = 0;
-    }
 
     @Override
     public Status checkInput(final FilterInfo info) {
-        // The stream counts references from its very start, and the peer's reset() does not change that
-        if (referencesAtStart < 0)
-            referencesAtStart = info.references();
-
-        if (info.depth() > MAX_DEPTH || info.references() - referencesAtStart > MAX_REFERENCES)
+        if (info.depth() > MAX_DEPTH || info.references() > MAX_REFERENCES)
             return Status.REJECTED;
 
         if (info.arrayLength() > 0) {

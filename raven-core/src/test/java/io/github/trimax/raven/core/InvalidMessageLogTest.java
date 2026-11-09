@@ -3,7 +3,6 @@ package io.github.trimax.raven.core;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
-import java.io.ObjectOutputStream;
 import java.net.InetAddress;
 import java.net.Socket;
 import java.util.List;
@@ -114,10 +113,10 @@ class InvalidMessageLogTest {
         try {
             // A raw socket bypasses the send-side validation of RavenClient
             try (final var socket = new Socket(InetAddress.getLoopbackAddress(), server.getPort())) {
-                final var output = new ObjectOutputStream(socket.getOutputStream());
+                final var output = socket.getOutputStream();
+                RawPeer.writeHello(output);
                 for (int i = 0; i < InvalidMessageLog.WARN_LIMIT + 2; i++)
-                    output.writeObject(new BlankMessage());
-                output.flush();
+                    RawPeer.writeObject(output, new BlankMessage());
 
                 await().atMost(2, TimeUnit.SECONDS).until(() -> appender.list.size() == InvalidMessageLog.WARN_LIMIT + 2);
             }

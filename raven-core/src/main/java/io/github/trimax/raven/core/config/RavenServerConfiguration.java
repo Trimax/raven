@@ -37,7 +37,7 @@ public final class RavenServerConfiguration extends AbstractRavenConfiguration {
     private final List<ServerMessageInterceptor> interceptors = List.of();
 
     /**
-     * Maximum time a new connection may take to deliver its stream header before it is dropped.
+     * Maximum time a new connection may take to deliver its hello before it is dropped.
      * Must be at least 1 millisecond and no larger than {@link Integer#MAX_VALUE} milliseconds (about 24.8 days).
      */
     @NonNull
