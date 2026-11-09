@@ -16,7 +16,6 @@ import org.junit.jupiter.api.Test;
 
 import io.github.trimax.raven.core.Client;
 import io.github.trimax.raven.core.Message;
-import io.github.trimax.raven.core.RawPeer;
 import io.github.trimax.raven.core.RavenClient;
 import io.github.trimax.raven.core.RavenServer;
 import io.github.trimax.raven.core.config.RavenClientConfiguration;
@@ -24,6 +23,7 @@ import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.exception.MessageValidationRavenException;
 import io.github.trimax.raven.core.handler.ClientHandler;
 import io.github.trimax.raven.core.handler.ServerHandler;
+import io.github.trimax.raven.core.internal.session.RawPeer;
 import io.github.trimax.raven.core.validation.annotation.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Getter;

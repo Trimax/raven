@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.handler.ServerHandler;
+import io.github.trimax.raven.core.internal.session.RawPeer;
 
 /**
  * Verifies end to end that the network input filter only admits {@link Message} subclasses and safe JDK types, and

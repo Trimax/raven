@@ -4,9 +4,11 @@ import java.util.Set;
 import java.util.UUID;
 
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
+import io.github.trimax.raven.core.internal.server.ServerSlot;
+import io.github.trimax.raven.core.internal.session.SessionSettings;
+import io.github.trimax.raven.core.internal.util.ThreadUtil;
 import io.github.trimax.raven.core.util.ArrayUtil;
 import io.github.trimax.raven.core.util.MeasurementUtil;
-import io.github.trimax.raven.core.util.ThreadUtil;
 import io.github.trimax.raven.core.validation.MessageValidator;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -16,7 +18,7 @@ import lombok.extern.slf4j.Slf4j;
  * and delegates events to a {@link io.github.trimax.raven.core.handler.ServerHandler}.
  *
  * <p>This class is the public facade; each run between {@link #start()} and {@link #stop()} is a
- * {@link ServerRuntime}, held by a {@link ServerSlot}. Every connection is a {@link Session} with its own virtual thread, which runs all handler
+ * {@code ServerRuntime}, held by a {@code ServerSlot}. Every connection is a {@code Session} with its own virtual thread, which runs all handler
  * callbacks of that client in order: {@code onConnect}, {@code onMessage} for each received message, then
  * {@code onDisconnect}. {@code onDisconnect} is called exactly once for every {@code onConnect} that returned
  * normally; a failing {@code onConnect} closes the connection and gets no {@code onDisconnect}.

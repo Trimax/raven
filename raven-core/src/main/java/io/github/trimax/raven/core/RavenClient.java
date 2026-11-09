@@ -1,8 +1,12 @@
 package io.github.trimax.raven.core;
 
 import io.github.trimax.raven.core.config.RavenClientConfiguration;
+import io.github.trimax.raven.core.internal.client.ClientListener;
+import io.github.trimax.raven.core.internal.client.SessionSlot;
+import io.github.trimax.raven.core.internal.session.Session;
+import io.github.trimax.raven.core.internal.session.SessionSettings;
+import io.github.trimax.raven.core.internal.util.ThreadUtil;
 import io.github.trimax.raven.core.util.MeasurementUtil;
-import io.github.trimax.raven.core.util.ThreadUtil;
 import io.github.trimax.raven.core.validation.MessageValidator;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -11,7 +15,7 @@ import lombok.extern.slf4j.Slf4j;
  * Pure TCP client. Connects to a {@link RavenServer}, sends messages,
  * and delegates events to a {@link io.github.trimax.raven.core.handler.ClientHandler}.
  *
- * <p>Every connection is a {@link Session} with its own virtual thread, named {@code raven-receiver}, and all handler
+ * <p>Every connection is a {@code Session} with its own virtual thread, named {@code raven-receiver}, and all handler
  * callbacks of that connection run on it in order: {@code onConnect}, then {@code onMessage} for each received
  * message, then {@code onDisconnect}. {@code onDisconnect} is called exactly once for every {@code onConnect} that
  * returned normally, however the session ended; a failing {@code onConnect} closes the connection and gets no

@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 
 import io.github.trimax.raven.core.config.RavenClientConfiguration;
 import io.github.trimax.raven.core.handler.ClientHandler;
+import io.github.trimax.raven.core.internal.session.RawPeer;
 
 /**
  * Verifies that a blocked connection attempt does not hold the client's lock,
