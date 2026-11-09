@@ -9,6 +9,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
+import io.github.trimax.raven.core.util.RetryUtil;
 import io.github.trimax.raven.core.util.ThreadUtil;
 import io.github.trimax.raven.core.util.TryUtil;
 import io.github.trimax.raven.core.util.retry.ExponentialRetryStrategy;
@@ -39,6 +40,9 @@ final class Acceptor {
     /** {@link System#nanoTime()} from which the next dropped connection is logged at WARN. */
     private final AtomicLong nextLimitWarning = new AtomicLong(System.nanoTime());
 
+    /** Consecutive failed accept() calls, reset by the next successful one; used only by the accept thread. */
+    private int failures;
+
     Acceptor(final ServerSocket serverSocket, final int maxConnections, final Consumer<Socket> onAccepted) {
         this.serverSocket = serverSocket;
         this.maxConnections = maxConnections;
@@ -68,26 +72,14 @@ final class Acceptor {
     }
 
     private void acceptLoop() {
-        // Consecutive failed accept() calls; reset by the next successful one
-        int failures = 0;
-
         while (!serverSocket.isClosed()) {
             final Socket socket;
             try {
-                socket = serverSocket.accept();
+                // A closed socket (stop) or an interrupt ends the loop; any other failure backs off and retries
+                socket = RetryUtil.execute(serverSocket::accept, ACCEPT_BACKOFF,
+                        exception -> !serverSocket.isClosed(), this::onAcceptFailure);
             } catch (final IOException ex) {
-                if (serverSocket.isClosed())
-                    break;
-
-                failures++;
-                if (failures == 1)
-                    log.error("Error accepting connection, backing off: {}", ex.getMessage());
-                else
-                    log.debug("Error accepting connection ({} in a row): {}", failures, ex.getMessage());
-
-                if (!backOff(failures))
-                    break;
-                continue;
+                break;
             }
 
             if (failures > 0) {
@@ -102,21 +94,14 @@ final class Acceptor {
         }
     }
 
-    /**
-     * Sleeps before the next accept() attempt. Closing the socket does not wake the sleep, but the loop checks
-     * the socket right after it, so a stop ends the loop within one delay (at most a second).
-     *
-     * @return {@code false} if the accept thread was interrupted and must end
-     */
-    private static boolean backOff(final int failures) {
-        try {
-            Thread.sleep(ACCEPT_BACKOFF.getDelay(failures));
-            return true;
-        } catch (final InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            return false;
-        }
+    private void onAcceptFailure(final int attempt, final Exception exception) {
+        failures = attempt;
+        if (attempt == 1)
+            log.error("Error accepting connection, backing off: {}", exception.getMessage());
+        else
+            log.debug("Error accepting connection ({} in a row): {}", attempt, exception.getMessage());
     }
+
 
     /**
      * Closes a connection accepted beyond the limit. Logged at WARN at most once per interval, so a flood of
