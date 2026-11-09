@@ -9,6 +9,7 @@ import java.io.ObjectOutputStream;
 
 import io.github.trimax.raven.core.Message;
 import io.github.trimax.raven.core.internal.codec.MessageInputFilter;
+import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -21,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
  * limits of that message.
  */
 @Slf4j
+@AllArgsConstructor
 public final class JavaSerializationCodec implements MessageCodec {
 
     private final boolean allowRecords;
@@ -30,10 +32,6 @@ public final class JavaSerializationCodec implements MessageCodec {
      */
     public JavaSerializationCodec() {
         this(true);
-    }
-
-    private JavaSerializationCodec(final boolean allowRecords) {
-        this.allowRecords = allowRecords;
     }
 
     /**
