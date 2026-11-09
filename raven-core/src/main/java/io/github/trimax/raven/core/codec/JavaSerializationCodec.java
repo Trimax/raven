@@ -27,6 +27,7 @@ public final class JavaSerializationCodec implements MessageCodec {
         try (final var output = new ObjectOutputStream(bytes)) {
             output.writeObject(message);
         }
+
         return bytes.toByteArray();
     }
 

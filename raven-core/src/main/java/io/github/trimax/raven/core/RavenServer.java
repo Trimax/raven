@@ -26,17 +26,12 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public final class RavenServer {
 
-    @NonNull
-    private final RavenServerConfiguration configuration;
-
     private final SessionSettings settings;
-
     private final ServerSlot server;
 
     public RavenServer(@NonNull final RavenServerConfiguration configuration) {
         configuration.validate();
 
-        this.configuration = configuration;
         this.settings = SessionSettings.of(configuration);
         this.server = new ServerSlot(configuration);
     }
