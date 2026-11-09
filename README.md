@@ -475,6 +475,26 @@ flowchart LR
     B -->|invalid| D["<b>MessageValidationRavenException</b><br/><br/>Thrown back to the caller"]
 ```
 
+## Java Modules
+
+`raven-core` is a named module, `io.github.trimax.raven.core`. It exports only the API packages
+(`io.github.trimax.raven.core` and its subpackages such as `config`, `codec`, `handler`, `validation`, `util`);
+the implementation in `io.github.trimax.raven.core.internal` is not exported.
+
+Validation reads the annotated fields of your messages reflectively, so a modular application must open its message
+packages to Raven; otherwise sending or receiving a message with constraints fails with an
+`InaccessibleObjectException`:
+
+```java
+module com.example.app {
+    requires io.github.trimax.raven.core;
+
+    opens com.example.app.messages to io.github.trimax.raven.core;
+}
+```
+
+On the class path nothing changes. The Spring integration (`raven-spring-*`) has no module descriptor and runs on the class path.
+
 ## Requirements
 
 - Java 25+

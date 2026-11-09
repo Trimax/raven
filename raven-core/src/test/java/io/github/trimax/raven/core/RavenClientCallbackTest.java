@@ -22,6 +22,7 @@ import io.github.trimax.raven.core.config.RavenClientConfiguration;
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.handler.ClientHandler;
 import io.github.trimax.raven.core.handler.ServerHandler;
+import io.github.trimax.raven.core.internal.server.ClientSession;
 import lombok.RequiredArgsConstructor;
 
 /**

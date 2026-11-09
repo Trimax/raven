@@ -8,13 +8,13 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 
 import io.github.trimax.raven.core.Message;
-import io.github.trimax.raven.core.filter.MessageInputFilter;
+import io.github.trimax.raven.core.internal.codec.MessageInputFilter;
 import lombok.extern.slf4j.Slf4j;
 
 /**
  * The default codec: Java serialization, one self-contained object stream per message.
  *
- * <p>The peer is untrusted, so decoding applies a {@link MessageInputFilter}: only {@link Message} subclasses and a
+ * <p>The peer is untrusted, so decoding applies a {@code MessageInputFilter}: only {@link Message} subclasses and a
  * fixed set of safe JDK value types may be deserialized. Each message gets a fresh filter, so the filter's limits
  * are the limits of that message.
  */
