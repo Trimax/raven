@@ -77,20 +77,22 @@ final class Session {
     }
 
     /**
-     * A session that connects to {@code target} once started. An unresolved address is resolved on the session thread.
+     * A session that connects to {@code host:port} once started. The host is resolved on the session thread, so a
+     * slow DNS lookup blocks no caller.
      */
-    static Session dialing(final InetSocketAddress target, final SessionSettings settings, final SessionListener listener) {
-        return new Session(new Socket(), target, settings, listener);
+    static Session dialing(final String host, final int port, final SessionSettings settings, final SessionListener listener) {
+        return new Session(new Socket(), InetSocketAddress.createUnresolved(host, port), settings, listener);
     }
 
     /**
-     * Starts the session thread. Called once.
+     * Starts the session thread. Called once. A session closed before it was started still runs and ends at once,
+     * without any callback.
      */
     void start(final ExecutorService threads) {
         // Server-side sessions are named after the client they serve, the client's after its old receive thread
         final var name = target == null ? "raven-client-" + id : "raven-receiver";
         try {
-            ThreadUtil.execute(threads, name, () -> ThreadUtil.runCallbacks(listener, () -> run(threads)));
+            ThreadUtil.execute(threads, name, () -> ThreadUtil.runCallbacks(() -> run(threads)));
         } catch (final RejectedExecutionException ex) {
             // The owner is shutting down: the session ends before it began
             close();
@@ -180,8 +182,7 @@ final class Session {
      */
     private DataInputStream handshake(final ExecutorService threads) throws IOException {
         if (target != null)
-            socket.connect(target.isUnresolved() ? new InetSocketAddress(target.getHostString(), target.getPort()) : target,
-                    millis(settings.connectTimeout()));
+            socket.connect(new InetSocketAddress(target.getHostString(), target.getPort()), millis(settings.connectTimeout()));
 
         socket.setSoTimeout(millis(settings.handshakeTimeout()));
         final var output = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));

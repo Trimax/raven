@@ -7,7 +7,6 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
@@ -236,7 +235,7 @@ class SessionTest {
 
     @Test
     void sendBeforeOpenIsDropped() {
-        final var session = Session.dialing(new InetSocketAddress(InetAddress.getLoopbackAddress(), 1), SETTINGS, new Recorder());
+        final var session = Session.dialing(InetAddress.getLoopbackAddress().getHostAddress(), 1, SETTINGS, new Recorder());
 
         assertDoesNotThrow(() -> session.send(new byte[]{1}));
         session.close();
@@ -244,8 +243,7 @@ class SessionTest {
     }
 
     private Session dial(final SessionListener listener) {
-        final var session = Session.dialing(
-                InetSocketAddress.createUnresolved("localhost", this.listener.getLocalPort()), SETTINGS, listener);
+        final var session = Session.dialing("localhost", this.listener.getLocalPort(), SETTINGS, listener);
         session.start(threads);
         return session;
     }

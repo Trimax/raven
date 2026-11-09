@@ -114,7 +114,9 @@ class RavenClientCallbackTest {
 
         // The old connection is closed but its session has not ended: the window in which a reconnect used to win
         final var reconnecting = CompletableFuture.runAsync(client::connect);
-        await().atMost(2, TimeUnit.SECONDS).until(client::isConnected);
+        Thread.sleep(200);
+        assertFalse(reconnecting.isDone(), "connect() must wait for the new session");
+        assertFalse(client.isConnected(), "the new session must not connect before the old one has ended");
         assertEquals(List.of("connect", "message"), handler.events, "the new session must wait for the old one to end");
 
         release.countDown();

@@ -27,14 +27,7 @@ public final class Client {
      * @throws IllegalArgumentException if the message cannot be serialized
      */
     void send(final Message message) {
-        send(session.settings().encode(message));
-    }
-
-    /**
-     * Queues an already encoded frame for this client.
-     */
-    void send(final byte[] frame) {
-        session.send(frame);
+        session.send(session.settings().encode(message));
     }
 
     /**

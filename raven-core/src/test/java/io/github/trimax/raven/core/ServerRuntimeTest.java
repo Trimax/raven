@@ -23,7 +23,7 @@ import io.github.trimax.raven.core.handler.ClientHandler;
 import io.github.trimax.raven.core.handler.ServerHandler;
 
 /**
- * Unit tests for {@link ServerRuntime}: stop() ends every session before it returns, sessions it cuts short get no
+ * Unit tests for {@link ServerRuntime}: stop() completes once every session has ended, sessions it cuts short get no
  * callbacks, and a restarted server starts from scratch.
  */
 class ServerRuntimeTest {
@@ -31,7 +31,7 @@ class ServerRuntimeTest {
     private final List<String> events = new CopyOnWriteArrayList<>();
 
     @Test
-    void stopReturnsAfterEveryOnDisconnect() throws IOException {
+    void stopReturnsAfterEveryOnDisconnect() throws Exception {
         final var runtime = start(new Recorder() {
             @Override
             public void onDisconnect(final Client client) {
@@ -47,11 +47,12 @@ class ServerRuntimeTest {
         }
         await().atMost(2, TimeUnit.SECONDS).until(() -> runtime.ids().size() == 3);
 
-        runtime.stop();
+        runtime.stop().get(5, TimeUnit.SECONDS);
 
         assertEquals(3, events.stream().filter("disconnect"::equals).count());
         assertTrue(runtime.ids().isEmpty());
-        assertEquals(1024, runtime.availableConnections(), "every permit is back");
+        // Each permit comes back once its session has ended, possibly just after stop() completed
+        await().atMost(2, TimeUnit.SECONDS).until(() -> runtime.availableConnections() == 1024);
         clients.forEach(RavenClient::disconnect);
     }
 
@@ -62,7 +63,7 @@ class ServerRuntimeTest {
             peer.setSoTimeout(5_000);
             RawPeer.readHello(peer.getInputStream());
 
-            runtime.stop();
+            runtime.stop().get(2, TimeUnit.SECONDS);
 
             // Completing the handshake now must not announce the connection
             try {
@@ -71,7 +72,7 @@ class ServerRuntimeTest {
                 // the server may already have closed the socket
             }
             assertTrue(events.isEmpty());
-            assertEquals(1024, runtime.availableConnections());
+            await().atMost(2, TimeUnit.SECONDS).until(() -> runtime.availableConnections() == 1024);
         }
     }
 
@@ -91,7 +92,7 @@ class ServerRuntimeTest {
         CompletableFuture.runAsync(client::connect);
         assertTrue(inConnect.await(2, TimeUnit.SECONDS));
 
-        final var stopping = CompletableFuture.runAsync(runtime::stop);
+        final var stopping = runtime.stop();
         Thread.sleep(100);
         assertFalse(stopping.isDone(), "stop() must wait for the session it closed");
         release.countDown();
@@ -103,16 +104,17 @@ class ServerRuntimeTest {
 
     @Test
     void stopFromACallbackDoesNotWaitForItself() throws Exception {
-        final var runtime = new AtomicReference<ServerRuntime>();
+        final var server = new AtomicReference<RavenServer>();
         final var stopped = new CompletableFuture<Void>();
-        runtime.set(start(new Recorder() {
+        server.set(new RavenServer(configuration(new Recorder() {
             @Override
             public void onMessage(final Client sender, final Message message) {
-                runtime.get().stop();
+                server.get().stop();
                 stopped.complete(null);
             }
-        }));
-        final var client = client(runtime.get().port());
+        })));
+        server.get().start();
+        final var client = client(server.get().getPort());
         client.connect();
 
         client.send(new TestMessage("stop"));

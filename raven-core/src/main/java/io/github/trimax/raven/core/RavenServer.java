@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.util.ArrayUtil;
 import io.github.trimax.raven.core.util.MeasurementUtil;
+import io.github.trimax.raven.core.util.ThreadUtil;
 import io.github.trimax.raven.core.validation.MessageValidator;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -69,8 +70,8 @@ public final class RavenServer {
     }
 
     /**
-     * Stops the server and disconnects all clients. Returns once {@code onDisconnect} has returned for every client,
-     * unless called from a handler callback of this server, which cannot wait for its own session to end.
+     * Stops the server and disconnects all clients. Returns once {@code onDisconnect} has returned for every client.
+     * Called from any Raven callback, it returns without waiting.
      */
     public void stop() {
         final var stopping = runtime.getAndSet(null);
@@ -78,7 +79,7 @@ public final class RavenServer {
             return;
 
         log.info("RavenServer stopping...");
-        stopping.stop();
+        ThreadUtil.awaitOutsideCallbacks(stopping.stop());
         log.info("RavenServer stopped");
     }
 
