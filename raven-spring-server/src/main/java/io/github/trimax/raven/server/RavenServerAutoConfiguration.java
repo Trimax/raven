@@ -2,6 +2,8 @@ package io.github.trimax.raven.server;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.Arrays;
+import java.util.Set;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.SmartInitializingSingleton;
@@ -10,6 +12,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.format.datetime.standard.DurationFormatterUtils;
+import org.springframework.util.StringUtils;
 
 import io.github.trimax.raven.core.RavenServer;
 import io.github.trimax.raven.core.codec.JavaSerializationCodec;
@@ -32,8 +35,9 @@ import lombok.RequiredArgsConstructor;
  * {@code raven.server.max-connections}, {@code raven.server.max-message-size} (e.g. {@code 16MB}), and
  * {@code raven.server.idle-timeout}, after which a client that sent nothing is disconnected; there is no heartbeat,
  * so this also disconnects healthy but silent clients (all but the bind address default to
- * {@link RavenServerConfiguration}'s values; the idle timeout is off by default). A {@link MessageCodec} bean, if
- * present, replaces the default Java serialization.
+ * {@link RavenServerConfiguration}'s values; the idle timeout is off by default). {@code raven.server.trusted-packages}, e.g.
+ * {@code com.example,org.acme}, lets the default codec deserialize plain classes of these packages. A
+ * {@link MessageCodec} bean, if present, replaces the default Java serialization and the trusted packages are ignored.
  */
 @Configuration(proxyBeanMethods = false)
 @ComponentScan(basePackages = "io.github.trimax.raven.server")
@@ -68,9 +72,13 @@ public final class RavenServerAutoConfiguration implements SmartInitializingSing
     @Value("${raven.server.max-message-size:#{null}}")
     private final String maxMessageSize;
 
-    /** Whether the default codec deserializes records; ignored when a {@link MessageCodec} bean is present. */
-    @Value("${raven.server.allow-records:true}")
-    private final boolean allowRecords;
+    /**
+     * Comma-separated packages whose plain classes the default codec deserializes, see
+     * {@link JavaSerializationCodec#JavaSerializationCodec(Set)}; unset trusts none. Ignored when a {@link MessageCodec}
+     * bean is present.
+     */
+    @Value("${raven.server.trusted-packages:}")
+    private final String trustedPackages;
 
     private RavenServer server;
 
@@ -98,12 +106,7 @@ public final class RavenServerAutoConfiguration implements SmartInitializingSing
         if (maxMessageSize != null)
             builder.maxMessageSize(DataSize.parse(maxMessageSize));
 
-        // A MessageCodec bean replaces the default Java serialization
-        final var customCodec = codec.getIfAvailable();
-        if (customCodec != null)
-            builder.codec(customCodec);
-        else if (!allowRecords)
-            builder.codec(JavaSerializationCodec.withoutRecords());
+        builder.codec(codec(codec));
 
         server = new RavenServer(builder.build());
         return server;
@@ -118,6 +121,18 @@ public final class RavenServerAutoConfiguration implements SmartInitializingSing
         } catch (final UnknownHostException ex) {
             throw new IllegalArgumentException("Invalid raven.server.bind-address: " + address, ex);
         }
+    }
+
+    /**
+     * A {@link MessageCodec} bean replaces the default Java serialization, whose trusted packages then do not apply.
+     */
+    MessageCodec codec(final ObjectProvider<MessageCodec> beans) {
+        final var bean = beans.getIfAvailable();
+        if (bean != null)
+            return bean;
+
+        // Trimmed, empty entries dropped; copyOf rather than of tolerates a package listed twice
+        return new JavaSerializationCodec(Set.copyOf(Arrays.asList(StringUtils.tokenizeToStringArray(trustedPackages, ","))));
     }
 
     @Override

@@ -70,8 +70,9 @@ raven.server.handshake-timeout=5s
 raven.server.max-connections=1024
 # Optional: largest serialized message, e.g. 512KB or 16MB (binary units); send() rejects larger ones and a peer announcing one is disconnected (default 16MB)
 raven.server.max-message-size=16MB
-# Optional: let the default codec deserialize records (default true); see "Message Field Types" below
-raven.server.allow-records=true
+# Optional: packages whose plain classes the default codec may deserialize, with their subpackages (default: none);
+# "*" trusts every class, only for trusted networks. Ignored if a MessageCodec bean exists. See "Message Field Types"
+raven.server.trusted-packages=com.example.dto,org.acme
 # Optional: disconnect a client that sends nothing for this long (default 0 = off). There is no heartbeat,
 # so a healthy client that stays silent this long is disconnected too
 raven.server.idle-timeout=5m
@@ -126,8 +127,9 @@ raven.client.send-queue-capacity=1024
 raven.client.send-timeout=5s
 # Optional: largest serialized message, e.g. 512KB or 16MB (default 16MB)
 raven.client.max-message-size=16MB
-# Optional: let the default codec deserialize records (default true); see "Message Field Types" below
-raven.client.allow-records=true
+# Optional: packages whose plain classes the default codec may deserialize, with their subpackages (default: none);
+# "*" trusts every class, only for trusted networks. Ignored if a MessageCodec bean exists. See "Message Field Types"
+raven.client.trusted-packages=com.example.dto,org.acme
 # Optional: disconnect if the server sends nothing for this long (default 0 = off). There is no heartbeat,
 # so a healthy but silent connection is closed too
 raven.client.idle-timeout=5m
@@ -203,8 +205,9 @@ compatible with Raven 1.4.x, which wrote one long Java object stream: server and
 
 Messages are encoded by the configured `MessageCodec` (`RavenServerConfiguration.builder().codec(...)`, or a
 `MessageCodec` bean with the Spring autoconfiguration). The default `JavaSerializationCodec` writes each message as a
-self-contained Java serialization stream and reads it through a filter that only admits `Message` subclasses, enums
-and a fixed set of JDK value types and collections.
+self-contained Java serialization stream and reads it through commons-io's `ValidatingObjectInputStream` and a
+deserialization filter, which only admit `Message` subclasses, records, enums, a fixed set of JDK value types and
+collections, and the classes of trusted packages (see "Message Field Types").
 
 `send()` and `broadcast()` encode the message on the calling thread before they return, so a message changed after
 the call is sent as it was. A message that cannot be serialized, or is larger than `maxMessageSize`, makes them
@@ -304,18 +307,35 @@ The peer is untrusted, so the default codec deserializes only these types; anyth
 as a protocol violation:
 
 - `Message` subclasses, also nested in other messages
-- **records** (`implements Serializable`), e.g. DTOs carried inside messages — disable with `allow-records: false` or
-  `JavaSerializationCodec.withoutRecords()`. Records are safe to allow: the JVM rebuilds a record only through its
-  canonical constructor and never runs a `readObject` for it, and its components must be allowed types too
+- **records** (`implements Serializable`), e.g. DTOs carried inside messages. Records are always allowed: the JVM
+  rebuilds a record only through its canonical constructor and never runs a `readObject` for it, and its components
+  must be allowed types too
 - enums, primitives and arrays of allowed types
 - `String`, boxed primitives, `UUID`, `BigInteger`, `BigDecimal`, `Instant`, `Duration`, `LocalDate`, `LocalTime`,
   `LocalDateTime`
 - `ArrayList`, `LinkedList`, `HashMap`, `LinkedHashMap`, `HashSet`, `LinkedHashSet`, and the immutable
   `List.of` / `Set.of` / `Map.of` / `stream().toList()` collections
+- any class of a **trusted package**, none by default
 
-Not allowed, for example: plain DTO classes that are neither messages nor records, `TreeMap`, `EnumMap`,
+Not allowed by default, for example: plain DTO classes that are neither messages nor records, `TreeMap`, `EnumMap`,
 `Collections.unmodifiableList(...)`, `Collections.singletonList(...)`, `Arrays.asList(...)`, `ZonedDateTime`.
 Per message, at most 64 levels of nesting, 100 000 object references and 2^20 array elements in total.
+Each class is checked before the stream resolves it, and a rejected class is never initialized.
+
+To send plain classes, trust their packages with `raven.server.trusted-packages` / `raven.client.trusted-packages`
+(comma-separated) or `new JavaSerializationCodec(Set.of("com.example"))`. A package trusts its own classes and those
+of its subpackages: `com.example` trusts `com.example.Unit` and `com.example.dto.Order`, not `com.examplex.Unit`.
+Trust only packages whose classes are safe to deserialize from a peer, since their `readObject` methods run on the
+peer's data. `*` trusts **every class on the class path**, which reopens Java deserialization gadget attacks
+(the `readObject` of any library class the peer names would run): use it only when every peer is trusted.
+
+The receiving side logs each rejection once, with the class or limit and a hint, then closes the connection:
+
+```
+WARN Session -- Rejected class com.example.Unit in a message from /10.0.0.7:51234, closing the connection:
+not a Message, record, enum or allowed JDK type. If the class is yours, trust its package:
+raven.server.trusted-packages / raven.client.trusted-packages=com.example or new JavaSerializationCodec(Set.of("com.example"))
+```
 
 ## Message Validation
 

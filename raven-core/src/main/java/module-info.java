@@ -20,6 +20,7 @@ module io.github.trimax.raven.core {
     exports io.github.trimax.raven.core.validation.annotation;
     exports io.github.trimax.raven.core.validation.validator;
 
+    requires org.apache.commons.io;
     requires org.slf4j;
     requires static lombok;
 }

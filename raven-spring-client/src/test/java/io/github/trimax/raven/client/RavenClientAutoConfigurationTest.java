@@ -4,12 +4,14 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.net.InetAddress;
 import java.net.ServerSocket;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 
+import io.github.trimax.raven.core.codec.JavaSerializationCodec;
 import io.github.trimax.raven.core.codec.MessageCodec;
 import io.github.trimax.raven.core.interceptor.ClientMessageInterceptor;
 
@@ -22,7 +24,7 @@ class RavenClientAutoConfigurationTest {
     void appliesConfiguredConnectTimeout() throws Exception {
         // The listener never accepts at application level, so only the connect timeout ends the handshake
         try (final var listener = new ServerSocket(0, 0, InetAddress.getLoopbackAddress())) {
-            final var configuration = new RavenClientAutoConfiguration("localhost", listener.getLocalPort(), "300ms", null, null, null, null, true);
+            final var configuration = new RavenClientAutoConfiguration("localhost", listener.getLocalPort(), "300ms", null, null, null, null, null);
             final var client = configuration.ravenClient(new ClientMessageRouter(), interceptors(), codecs());
 
             final long started = System.nanoTime();
@@ -36,65 +38,88 @@ class RavenClientAutoConfigurationTest {
 
     @Test
     void acceptsMissingConnectTimeout() {
-        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, null, null, true);
+        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, null, null, null);
 
         assertDoesNotThrow(() -> configuration.ravenClient(new ClientMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void rejectsMalformedConnectTimeout() {
-        final var configuration = new RavenClientAutoConfiguration("localhost", 0, "soon", null, null, null, null, true);
+        final var configuration = new RavenClientAutoConfiguration("localhost", 0, "soon", null, null, null, null, null);
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenClient(new ClientMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void rejectsZeroSendQueueCapacity() {
-        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, 0, null, null, null, true);
+        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, 0, null, null, null, null);
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenClient(new ClientMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void rejectsMalformedSendTimeout() {
-        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, "later", null, null, true);
+        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, "later", null, null, null);
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenClient(new ClientMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void rejectsMalformedIdleTimeout() {
-        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, "never", null, true);
+        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, "never", null, null);
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenClient(new ClientMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void rejectsNegativeIdleTimeout() {
-        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, "-1s", null, true);
+        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, "-1s", null, null);
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenClient(new ClientMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void acceptsMaxMessageSizeWithUnit() {
-        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, null, "2KB", true);
+        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, null, "2KB", null);
 
         assertDoesNotThrow(() -> configuration.ravenClient(new ClientMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void rejectsMalformedMaxMessageSize() {
-        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, null, "two kilobytes", true);
+        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, null, "two kilobytes", null);
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenClient(new ClientMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void rejectsZeroMaxMessageSize() {
-        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, null, "0B", true);
+        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, null, "0B", null);
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenClient(new ClientMessageRouter(), interceptors(), codecs()));
+    }
+
+    @Test
+    void parsesTrustedPackagesIntoTheDefaultCodec() {
+        final var codec = new RavenClientAutoConfiguration("localhost", 0, null, null, null, null, null, " com.example, org.acme,,com.example ").codec(codecs());
+
+        assertEquals(Set.of("com.example", "org.acme"), assertInstanceOf(JavaSerializationCodec.class, codec).getTrustedPackages());
+    }
+
+    @Test
+    void trustsNoPackagesWhenUnset() {
+        final var codec = new RavenClientAutoConfiguration("localhost", 0, null, null, null, null, null, "").codec(codecs());
+
+        assertEquals(Set.of(), assertInstanceOf(JavaSerializationCodec.class, codec).getTrustedPackages());
+    }
+
+    @Test
+    void ignoresTrustedPackagesForAMessageCodecBean() {
+        final var bean = new JavaSerializationCodec();
+        final var beans = new DefaultListableBeanFactory();
+        beans.registerSingleton("codec", bean);
+
+        assertSame(bean, new RavenClientAutoConfiguration("localhost", 0, null, null, null, null, null, "com.example").codec(beans.getBeanProvider(MessageCodec.class)));
     }
 
     private static ObjectProvider<MessageCodec> codecs() {

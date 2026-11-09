@@ -17,6 +17,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
 
+import io.github.trimax.raven.core.internal.codec.RejectedMessageException;
 import io.github.trimax.raven.core.internal.util.ThreadUtil;
 import io.github.trimax.raven.core.util.TryUtil;
 import lombok.Getter;
@@ -214,6 +215,8 @@ public final class Session {
         // close() aborted the blocked I/O: an ordinary end, already decided by whoever closed
         if (isClosed())
             log.debug("Connection to {} closed: {}", remoteAddress(), ex.getMessage());
+        else if (ex instanceof RejectedMessageException rejected)
+            log.warn("Rejected {} from {}, closing the connection: {}", rejected.subject(), remoteAddress(), rejected.reason());
         else if (ex instanceof ProtocolException || ex instanceof ObjectStreamException)
             log.warn("Closing connection to {}, protocol violation: {}", remoteAddress(), ex.getMessage());
         else if (!announced)

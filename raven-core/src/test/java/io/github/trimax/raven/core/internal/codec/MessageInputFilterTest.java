@@ -1,13 +1,18 @@
 package io.github.trimax.raven.core.internal.codec;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.InvalidClassException;
 import java.io.ObjectInputFilter.FilterInfo;
 import java.io.ObjectInputFilter.Status;
 import java.io.Serializable;
+import java.lang.reflect.Proxy;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -16,11 +21,13 @@ import org.junit.jupiter.api.Test;
 import io.github.trimax.raven.core.Message;
 
 /**
- * Unit tests for {@link MessageInputFilter}: which classes may be deserialized and the structural limits.
+ * Unit tests for {@link MessageInputFilter}: which resolved classes may be deserialized, proxies included, and the
+ * structural limits.
  */
 class MessageInputFilterTest {
 
-    private final MessageInputFilter filter = new MessageInputFilter(true);
+    private final Rejection rejection = new Rejection();
+    private final MessageInputFilter filter = new MessageInputFilter(new MessageTypePolicy(Set.of()), rejection);
 
     static final class PingMessage extends Message {
     }
@@ -98,10 +105,48 @@ class MessageInputFilterTest {
     }
 
     @Test
-    void rejectsRecordsWhenNotAllowed() {
-        final var strict = new MessageInputFilter(false);
+    void allowsClassesOfTrustedPackages() {
+        final var trusting = new MessageInputFilter(new MessageTypePolicy(Set.of("io.github.trimax.raven.core.internal")), rejection);
 
-        assertEquals(Status.REJECTED, strict.checkInput(info(Point.class, 1, 1, -1)));
+        assertEquals(Status.ALLOWED, trusting.checkInput(info(Payload.class, 1, 1, -1)));
+        assertEquals(Status.ALLOWED, trusting.checkInput(info(Payload[].class, 1, 1, -1)));
+    }
+
+    /** An interface of this package, so it can be trusted. */
+    public interface Greeting {
+        String greet();
+    }
+
+    @Test
+    void rejectsProxiesOfUntrustedInterfaces() {
+        final var proxy = proxyClass(Greeting.class);
+
+        assertEquals(Status.REJECTED, check(proxy));
+        assertTrue(explained().reason().contains("interfaces of trusted packages"), explained().reason());
+        // Even when the proxy only claims to be an allowed-looking type: an interface is never a Message or a record
+        assertEquals(Status.REJECTED, check(proxyClass(Runnable.class)));
+    }
+
+    @Test
+    void allowsProxiesOfTrustedInterfaces() {
+        final var trusting = new MessageInputFilter(new MessageTypePolicy(Set.of("io.github.trimax.raven.core.internal.codec")), rejection);
+
+        assertEquals(Status.ALLOWED, trusting.checkInput(info(proxyClass(Greeting.class), 1, 1, -1)));
+        assertEquals(Status.REJECTED, trusting.checkInput(info(proxyClass(Greeting.class, Runnable.class), 1, 1, -1)));
+    }
+
+    @Test
+    void explainsWhichClassWasRejected() {
+        check(Payload.class);
+
+        assertTrue(explained().subject().contains(Payload.class.getName()), explained().subject());
+    }
+
+    @Test
+    void explainsWhichLimitWasExceeded() {
+        filter.checkInput(info(String.class, MessageInputFilter.MAX_DEPTH + 1, 1, -1));
+
+        assertEquals("it exceeds the limit of 64 levels of nesting per message", explained().reason());
     }
 
     @Test
@@ -128,6 +173,14 @@ class MessageInputFilterTest {
     void allowsGraphsAtTheLimits() {
         assertEquals(Status.ALLOWED, filter.checkInput(info(byte[].class,
                 MessageInputFilter.MAX_DEPTH, MessageInputFilter.MAX_REFERENCES, MessageInputFilter.MAX_ARRAY_ELEMENTS)));
+    }
+
+    private RejectedMessageException explained() {
+        return assertInstanceOf(RejectedMessageException.class, rejection.explain(new InvalidClassException("rejected")));
+    }
+
+    private static Class<?> proxyClass(final Class<?>... interfaces) {
+        return Proxy.newProxyInstance(MessageInputFilterTest.class.getClassLoader(), interfaces, (_, _, _) -> null).getClass();
     }
 
     private Status check(final Class<?> type) {

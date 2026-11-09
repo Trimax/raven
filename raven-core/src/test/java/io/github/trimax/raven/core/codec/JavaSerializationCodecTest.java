@@ -9,6 +9,9 @@ import java.io.NotSerializableException;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.io.StreamCorruptedException;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.Duration;
@@ -17,6 +20,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -59,6 +63,28 @@ class JavaSerializationCodecTest {
         private final Lobby lobby = new Lobby(UUID.randomUUID(), "lobby",
                 List.of(new Slot(0, TimeUnit.SECONDS, LocalDateTime.of(2026, 1, 1, 12, 0)), new Slot(1, TimeUnit.MINUTES, null)));
         private final List<Lobby> lobbies = new ArrayList<>(List.of(lobby, new Lobby(UUID.randomUUID(), "empty", List.of())));
+    }
+
+    static final class PayloadMessage extends Message {
+        private final Payload payload = new Payload();
+    }
+
+    /** An interface of this package, so that "*" can trust it. */
+    public interface Greeting {
+        String greet();
+    }
+
+    /** A harmless, allowed handler: proxies must be rejected for their interfaces, not their handler. */
+    record GreetingHandler(String text) implements InvocationHandler, Serializable {
+        @Override
+        public Object invoke(final Object proxy, final Method method, final Object[] args) {
+            return text;
+        }
+    }
+
+    static final class ProxyMessage extends Message {
+        private final Greeting greeting = (Greeting) Proxy.newProxyInstance(Greeting.class.getClassLoader(),
+                new Class<?>[]{Greeting.class}, new GreetingHandler("hello"));
     }
 
     static final class CarrierMessage extends Message {
@@ -159,15 +185,70 @@ class JavaSerializationCodecTest {
     }
 
     @Test
-    void rejectsRecordsWithoutRecords() throws IOException {
-        final var strict = JavaSerializationCodec.withoutRecords();
-
-        assertThrows(InvalidClassException.class, () -> strict.decode(strict.encode(new LobbyMessage())));
+    void rejectsClassesOutsideTheFilter() throws IOException {
+        assertThrows(InvalidClassException.class, () -> codec.decode(serialize(new Payload())));
     }
 
     @Test
-    void rejectsClassesOutsideTheFilter() throws IOException {
-        assertThrows(InvalidClassException.class, () -> codec.decode(serialize(new Payload())));
+    void rejectsPlainClassesByDefault() throws IOException {
+        final var payload = codec.encode(new PayloadMessage());
+
+        final var ex = assertThrows(InvalidClassException.class, () -> codec.decode(payload));
+        assertTrue(ex.getMessage().contains(Payload.class.getName()), ex.getMessage());
+    }
+
+    @Test
+    void acceptsPlainClassesOfATrustedPackage() throws IOException {
+        final var trusting = new JavaSerializationCodec(Set.of("io.github.trimax.raven.core.codec"));
+
+        assertInstanceOf(PayloadMessage.class, trusting.decode(trusting.encode(new PayloadMessage())));
+        assertInstanceOf(CarrierMessage.class, trusting.decode(trusting.encode(new CarrierMessage())));
+    }
+
+    @Test
+    void acceptsPlainClassesOfASubpackageOfATrustedPackage() throws IOException {
+        final var trusting = new JavaSerializationCodec(Set.of("io.github.trimax.raven"));
+
+        assertInstanceOf(PayloadMessage.class, trusting.decode(trusting.encode(new PayloadMessage())));
+    }
+
+    @Test
+    void doesNotTrustANeighbouringPackage() throws IOException {
+        // "core.co" is a prefix of "core.codec", but not its package
+        final var trusting = new JavaSerializationCodec(Set.of("io.github.trimax.raven.core.co"));
+        final var payload = trusting.encode(new PayloadMessage());
+
+        assertThrows(InvalidClassException.class, () -> trusting.decode(payload));
+    }
+
+    @Test
+    void starTrustsEveryClass() throws IOException {
+        final var trustingAll = new JavaSerializationCodec(Set.of("*"));
+
+        assertInstanceOf(PayloadMessage.class, trustingAll.decode(trustingAll.encode(new PayloadMessage())));
+        // Read without rejection, then dropped for not being a Message
+        assertNull(trustingAll.decode(serialize(new Date())));
+    }
+
+    @Test
+    void rejectsMalformedTrustedPackages() {
+        assertThrows(IllegalArgumentException.class, () -> new JavaSerializationCodec(Set.of("com.example.*")));
+    }
+
+    @Test
+    void rejectsADynamicProxy() throws IOException {
+        // The handler is a record, an allowed type; the proxy's interface is not trusted
+        final var payload = codec.encode(new ProxyMessage());
+
+        assertThrows(InvalidClassException.class, () -> codec.decode(payload));
+    }
+
+    @Test
+    void acceptsADynamicProxyWhenEveryClassIsTrusted() throws IOException {
+        final var trustingAll = new JavaSerializationCodec(Set.of("*"));
+
+        final var received = assertInstanceOf(ProxyMessage.class, trustingAll.decode(trustingAll.encode(new ProxyMessage())));
+        assertEquals("hello", received.greeting.greet());
     }
 
     @Test

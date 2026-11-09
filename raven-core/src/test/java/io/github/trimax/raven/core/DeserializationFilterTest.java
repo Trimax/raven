@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.Serializable;
 import java.net.InetAddress;
 import java.net.Socket;
 import java.net.SocketException;
@@ -17,10 +18,17 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.handler.ServerHandler;
 import io.github.trimax.raven.core.internal.session.RawPeer;
+import io.github.trimax.raven.core.internal.session.Session;
 
 /**
  * Verifies end to end that the network input filter only admits {@link Message} subclasses and safe JDK types, and
@@ -80,6 +88,39 @@ class DeserializationFilterTest {
     @Test
     void allowedObjectThatIsNotAMessageClosesTheConnection() throws Exception {
         assertDisconnectedAfterSending("I am not a Message");
+    }
+
+    @Test
+    void rejectedClassIsLoggedWithTheHint() throws Exception {
+        final var logger = (Logger) LoggerFactory.getLogger(Session.class);
+        final var appender = new ListAppender<ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            assertDisconnectedAfterSending(new PayloadMessage());
+
+            final var warnings = appender.list.stream()
+                    .filter(event -> event.getLevel() == Level.WARN)
+                    .map(ILoggingEvent::getFormattedMessage)
+                    .toList();
+            assertEquals(1, warnings.size(), warnings.toString());
+            final var warning = warnings.getFirst();
+            assertTrue(warning.startsWith("Rejected class " + Payload.class.getName() + " in a message from "), warning);
+            assertTrue(warning.contains("closing the connection"), warning);
+            assertTrue(warning.contains("raven.server.trusted-packages / raven.client.trusted-packages=io.github.trimax.raven.core"), warning);
+            assertTrue(warning.contains("new JavaSerializationCodec(Set.of(\"io.github.trimax.raven.core\"))"), warning);
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    /** Serializable, but neither a Message, a record nor an allowed JDK type. */
+    static final class Payload implements Serializable {
+    }
+
+    static final class PayloadMessage extends Message {
+        @SuppressWarnings("unused")
+        private final Payload payload = new Payload();
     }
 
     private void assertDisconnectedAfterSending(final Object object) throws IOException {
