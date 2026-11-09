@@ -9,7 +9,6 @@ import io.github.trimax.raven.core.Client;
 import io.github.trimax.raven.core.Message;
 import io.github.trimax.raven.core.handler.ServerHandler;
 import io.github.trimax.raven.spring.AbstractMessageRouter;
-import lombok.extern.slf4j.Slf4j;
 
 /**
  * Server-side message router. Implements {@link ServerHandler} and dispatches
@@ -22,7 +21,6 @@ import lombok.extern.slf4j.Slf4j;
  *   <li>{@link SubscribeDisconnect} — {@code void method(Client client)}</li>
  * </ul>
  */
-@Slf4j
 @Component
 public final class ServerMessageRouter extends AbstractMessageRouter implements ServerHandler {
 

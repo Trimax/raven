@@ -16,7 +16,6 @@ import io.github.trimax.raven.core.interceptor.ClientMessageInterceptor;
 import io.github.trimax.raven.core.type.DataSize;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 
 /**
  * Autoconfiguration for the Raven client.
@@ -31,7 +30,6 @@ import lombok.extern.slf4j.Slf4j;
  * values; the idle timeout is off by default). A {@link MessageCodec} bean, if present, replaces the default Java
  * serialization.
  */
-@Slf4j
 @Configuration(proxyBeanMethods = false)
 @ComponentScan(basePackages = "io.github.trimax.raven.client")
 @RequiredArgsConstructor
@@ -77,6 +75,7 @@ public final class RavenClientAutoConfiguration implements SmartInitializingSing
                 .port(port)
                 .handler(router)
                 .interceptors(interceptors.orderedStream().toList());
+
         // Unset keeps the core default instead of duplicating it here
         if (connectTimeout != null)
             builder.connectTimeout(DurationFormatterUtils.detectAndParse(connectTimeout));
@@ -88,6 +87,7 @@ public final class RavenClientAutoConfiguration implements SmartInitializingSing
             builder.idleTimeout(DurationFormatterUtils.detectAndParse(idleTimeout));
         if (maxMessageSize != null)
             builder.maxMessageSize(DataSize.parse(maxMessageSize));
+
         // A MessageCodec bean replaces the default Java serialization
         final var customCodec = codec.getIfAvailable();
         if (customCodec != null)
