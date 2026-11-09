@@ -11,6 +11,7 @@ import java.util.concurrent.ExecutorService;
 
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
 import io.github.trimax.raven.core.util.HandlingUtil;
+import io.github.trimax.raven.core.util.ThreadUtil;
 import io.github.trimax.raven.core.util.TryUtil;
 import lombok.extern.slf4j.Slf4j;
 
@@ -33,7 +34,7 @@ final class ServerRuntime implements SessionListener {
     private final RavenServerConfiguration configuration;
     private final SessionSettings settings;
     private final ServerSocket serverSocket;
-    private final ExecutorService threads = TransportThreads.newExecutor();
+    private final ExecutorService threads = ThreadUtil.newExecutor();
     private final Acceptor acceptor;
 
     /** Every session from its accept to its end, handshakes included, so that stop() can close them all. */
@@ -76,7 +77,7 @@ final class ServerRuntime implements SessionListener {
         TryUtil.execute(serverSocket::close);
         sessions.forEach(Session::close);
 
-        if (TransportThreads.callbackListener() == this)
+        if (ThreadUtil.callbackOwner() == this)
             threads.shutdown();
         else
             threads.close();

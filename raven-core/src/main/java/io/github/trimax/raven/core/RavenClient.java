@@ -8,6 +8,7 @@ import java.util.concurrent.ExecutorService;
 import io.github.trimax.raven.core.config.RavenClientConfiguration;
 import io.github.trimax.raven.core.util.HandlingUtil;
 import io.github.trimax.raven.core.util.MeasurementUtil;
+import io.github.trimax.raven.core.util.ThreadUtil;
 import io.github.trimax.raven.core.validation.MessageValidator;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
@@ -39,7 +40,7 @@ public final class RavenClient {
      * Runs the session and writer threads. Never closed: its virtual threads end with their session, and an idle
      * executor holds nothing, so it needs no shutdown.
      */
-    private final ExecutorService threads = TransportThreads.newExecutor();
+    private final ExecutorService threads = ThreadUtil.newExecutor();
 
     /** Guards {@link #session} updates. Never held while a callback runs or I/O blocks. */
     private final Object lock = new Object();
@@ -147,7 +148,7 @@ public final class RavenClient {
      * itself has to return from its callback before any milestone of this client can be reached.
      */
     private void awaitUnlessCallback(final CompletableFuture<Void> milestone) {
-        if (TransportThreads.callbackListener() instanceof Callbacks callbacks && callbacks.client() == this)
+        if (ThreadUtil.callbackOwner() instanceof Callbacks callbacks && callbacks.client() == this)
             return;
 
         try {

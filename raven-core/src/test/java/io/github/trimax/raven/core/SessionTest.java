@@ -25,6 +25,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import io.github.trimax.raven.core.codec.JavaSerializationCodec;
+import io.github.trimax.raven.core.util.ThreadUtil;
 
 /**
  * Unit tests for {@link Session}: one thread runs every callback in order, and closing from any thread at any point
@@ -34,7 +35,7 @@ class SessionTest {
 
     private static final SessionSettings SETTINGS = settings(Duration.ZERO, 1024, Duration.ofSeconds(5));
 
-    private final ExecutorService threads = TransportThreads.newExecutor();
+    private final ExecutorService threads = ThreadUtil.newExecutor();
     private ServerSocket listener;
 
     @BeforeEach

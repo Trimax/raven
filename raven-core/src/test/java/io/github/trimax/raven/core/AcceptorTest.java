@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 
+import io.github.trimax.raven.core.util.ThreadUtil;
 import io.github.trimax.raven.core.util.TryUtil;
 
 /**
@@ -26,7 +27,7 @@ class AcceptorTest {
 
     @Test
     void loopEndsWhenItsSocketIsClosed() throws Exception {
-        final var threads = TransportThreads.newExecutor();
+        final var threads = ThreadUtil.newExecutor();
         final var socket = new ServerSocket(0, 0, InetAddress.getLoopbackAddress());
         new Acceptor(socket, 1, accepted::add).start(threads);
 
@@ -38,7 +39,7 @@ class AcceptorTest {
 
     @Test
     void connectionBeyondTheLimitIsClosedAndReleaseFreesItsSlot() throws Exception {
-        final var threads = TransportThreads.newExecutor();
+        final var threads = ThreadUtil.newExecutor();
         try (final var socket = new ServerSocket(0, 0, InetAddress.getLoopbackAddress());
              final var first = new Socket(InetAddress.getLoopbackAddress(), socket.getLocalPort())) {
             final var acceptor = new Acceptor(socket, 1, accepted::add);
@@ -66,7 +67,7 @@ class AcceptorTest {
     @Test
     void backsOffWhileAcceptFailsAndRecovers() throws Exception {
         final int failing = 5;
-        final var threads = TransportThreads.newExecutor();
+        final var threads = ThreadUtil.newExecutor();
         try (final var socket = new FailingServerSocket(failing)) {
             new Acceptor(socket, 16, accepted::add).start(threads);
             // Becomes acceptable once the failures are over: the backlog holds the connection until then
@@ -91,7 +92,7 @@ class AcceptorTest {
 
     @Test
     void closingDuringBackoffEndsLoopPromptly() throws Exception {
-        final var threads = TransportThreads.newExecutor();
+        final var threads = ThreadUtil.newExecutor();
         final var socket = new FailingServerSocket(Integer.MAX_VALUE);
         new Acceptor(socket, 1, accepted::add).start(threads);
         // After 8 failures the delay has reached its 1 s cap

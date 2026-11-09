@@ -17,6 +17,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
 
+import io.github.trimax.raven.core.util.ThreadUtil;
 import io.github.trimax.raven.core.util.TryUtil;
 import lombok.Getter;
 import lombok.experimental.Accessors;
@@ -89,7 +90,7 @@ final class Session {
         // Server-side sessions are named after the client they serve, the client's after its old receive thread
         final var name = target == null ? "raven-client-" + id : "raven-receiver";
         try {
-            TransportThreads.execute(threads, name, () -> TransportThreads.runCallbacks(listener, () -> run(threads)));
+            ThreadUtil.execute(threads, name, () -> ThreadUtil.runCallbacks(listener, () -> run(threads)));
         } catch (final RejectedExecutionException ex) {
             // The owner is shutting down: the session ends before it began
             close();

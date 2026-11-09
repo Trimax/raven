@@ -19,12 +19,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import io.github.trimax.raven.core.util.ThreadUtil;
+
 /**
  * Unit tests for {@link Transmitter}, on in-memory streams.
  */
 class TransmitterTest {
 
-    private final ExecutorService threads = TransportThreads.newExecutor();
+    private final ExecutorService threads = ThreadUtil.newExecutor();
     private final AtomicInteger failures = new AtomicInteger();
 
     @AfterEach

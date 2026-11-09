@@ -8,6 +8,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import io.github.trimax.raven.core.util.ThreadUtil;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -43,7 +44,7 @@ final class Transmitter {
      * Starts the writer thread. Called once; does nothing visible if {@link #stop()} came first.
      */
     void start(final DataOutputStream output, final ExecutorService threads) {
-        TransportThreads.execute(threads, "raven-writer", () -> writeLoop(output));
+        ThreadUtil.execute(threads, "raven-writer", () -> writeLoop(output));
     }
 
     /**

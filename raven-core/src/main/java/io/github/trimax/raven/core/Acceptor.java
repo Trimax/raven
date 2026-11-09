@@ -9,6 +9,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
+import io.github.trimax.raven.core.util.ThreadUtil;
 import io.github.trimax.raven.core.util.TryUtil;
 import io.github.trimax.raven.core.util.retry.ExponentialRetryStrategy;
 import lombok.extern.slf4j.Slf4j;
@@ -49,7 +50,7 @@ final class Acceptor {
      * Starts the accept loop, which ends once the server socket is closed.
      */
     void start(final ExecutorService threads) {
-        TransportThreads.execute(threads, "raven-accept", this::acceptLoop);
+        ThreadUtil.execute(threads, "raven-accept", this::acceptLoop);
     }
 
     /**
