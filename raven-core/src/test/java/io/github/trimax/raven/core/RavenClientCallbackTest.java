@@ -48,7 +48,7 @@ class RavenClientCallbackTest {
                         serverSide.set(client);
                         // Only the first connection gets a greeting, so later sessions stay quiet
                         if (serverConnects.incrementAndGet() == 1)
-                            client.send(new TestMessage("hello"));
+                            ((ClientSession) client).send(new TestMessage("hello"));
                     }
 
                     @Override

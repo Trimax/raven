@@ -2,45 +2,26 @@ package io.github.trimax.raven.core;
 
 import java.util.UUID;
 
-import lombok.AccessLevel;
-import lombok.RequiredArgsConstructor;
-
 /**
- * Represents a single client connected to the {@link RavenServer}: the server side of one session.
+ * A client connected to a {@link RavenServer}, as the server's handler sees it. The server creates one per
+ * connection; handlers receive it in every callback of that connection.
+ *
+ * <p>An interface, so that handlers can be unit-tested with a stub or a mock instead of a running server.
  */
-@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
-public final class Client {
-
-    private final Session session;
+public interface Client {
 
     /**
      * Returns the unique identifier of this client.
      */
-    public UUID getId() {
-        return session.id();
-    }
-
-    /**
-     * Sends a message to this client. Thread-safe. The message is serialized on the calling thread, without
-     * validation.
-     *
-     * @throws IllegalArgumentException if the message cannot be serialized
-     */
-    void send(final Message message) {
-        session.send(session.settings().encode(message));
-    }
+    UUID getId();
 
     /**
      * Returns whether this client is still connected.
      */
-    public boolean isConnected() {
-        return session.isOpen();
-    }
+    boolean isConnected();
 
     /**
      * Closes the connection to this client. {@code onDisconnect} follows on the client's session thread.
      */
-    public void disconnect() {
-        session.close();
-    }
+    void disconnect();
 }
