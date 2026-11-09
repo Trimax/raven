@@ -3,6 +3,8 @@ package io.github.trimax.raven.core.config;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
+import lombok.NonNull;
+
 /**
  * An amount of data, like {@link java.time.Duration} is an amount of time. Units are binary: 1 KB = 1024 bytes.
  * Mirrors Spring's {@code DataSize}, which this core module cannot depend on.
@@ -65,6 +67,7 @@ public record DataSize(long bytes) {
         return bytes;
     }
 
+    @NonNull
     @Override
     public String toString() {
         return bytes + "B";
