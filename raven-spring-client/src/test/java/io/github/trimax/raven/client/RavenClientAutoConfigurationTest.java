@@ -22,7 +22,7 @@ class RavenClientAutoConfigurationTest {
     void appliesConfiguredConnectTimeout() throws Exception {
         // The listener never accepts at application level, so only the connect timeout ends the handshake
         try (final var listener = new ServerSocket(0, 0, InetAddress.getLoopbackAddress())) {
-            final var configuration = new RavenClientAutoConfiguration("localhost", listener.getLocalPort(), "300ms", null, null, null, null);
+            final var configuration = new RavenClientAutoConfiguration("localhost", listener.getLocalPort(), "300ms", null, null, null, null, true);
             final var client = configuration.ravenClient(new ClientMessageRouter(), interceptors(), codecs());
 
             final long started = System.nanoTime();
@@ -36,63 +36,63 @@ class RavenClientAutoConfigurationTest {
 
     @Test
     void acceptsMissingConnectTimeout() {
-        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, null, null);
+        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, null, null, true);
 
         assertDoesNotThrow(() -> configuration.ravenClient(new ClientMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void rejectsMalformedConnectTimeout() {
-        final var configuration = new RavenClientAutoConfiguration("localhost", 0, "soon", null, null, null, null);
+        final var configuration = new RavenClientAutoConfiguration("localhost", 0, "soon", null, null, null, null, true);
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenClient(new ClientMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void rejectsZeroSendQueueCapacity() {
-        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, 0, null, null, null);
+        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, 0, null, null, null, true);
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenClient(new ClientMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void rejectsMalformedSendTimeout() {
-        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, "later", null, null);
+        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, "later", null, null, true);
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenClient(new ClientMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void rejectsMalformedIdleTimeout() {
-        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, "never", null);
+        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, "never", null, true);
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenClient(new ClientMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void rejectsNegativeIdleTimeout() {
-        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, "-1s", null);
+        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, "-1s", null, true);
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenClient(new ClientMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void acceptsMaxMessageSizeWithUnit() {
-        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, null, "2KB");
+        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, null, "2KB", true);
 
         assertDoesNotThrow(() -> configuration.ravenClient(new ClientMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void rejectsMalformedMaxMessageSize() {
-        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, null, "two kilobytes");
+        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, null, "two kilobytes", true);
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenClient(new ClientMessageRouter(), interceptors(), codecs()));
     }
 
     @Test
     void rejectsZeroMaxMessageSize() {
-        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, null, "0B");
+        final var configuration = new RavenClientAutoConfiguration("localhost", 0, null, null, null, null, "0B", true);
 
         assertThrows(IllegalArgumentException.class, () -> configuration.ravenClient(new ClientMessageRouter(), interceptors(), codecs()));
     }

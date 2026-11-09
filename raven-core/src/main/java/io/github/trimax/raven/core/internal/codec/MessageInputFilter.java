@@ -19,6 +19,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import io.github.trimax.raven.core.Message;
+import lombok.RequiredArgsConstructor;
 
 /**
  * Deserialization filter applied to every object read from the network.
@@ -34,6 +35,7 @@ import io.github.trimax.raven.core.Message;
  *
  * <p>Internal: not part of the API.
  */
+@RequiredArgsConstructor
 public final class MessageInputFilter implements ObjectInputFilter {
 
     /** Maximum nesting depth of one message's object graph. */
@@ -83,7 +85,10 @@ public final class MessageInputFilter implements ObjectInputFilter {
             "java.util.ImmutableCollections$Set12", "java.util.ImmutableCollections$SetN",
             "java.util.ImmutableCollections$Map1", "java.util.ImmutableCollections$MapN");
 
-    /** Array elements declared so far by the message. */
+    /** Array elements declared so far by the message.
+        Whether records are trusted: the JVM rebuilds them only through their canonical constructor. */
+    private final boolean allowRecords;
+
     private long arrayElements;
 
     @Override
@@ -104,7 +109,7 @@ public final class MessageInputFilter implements ObjectInputFilter {
         return isAllowed(type) ? Status.ALLOWED : Status.REJECTED;
     }
 
-    private static boolean isAllowed(final Class<?> type) {
+    private boolean isAllowed(final Class<?> type) {
         var component = type;
         while (component.isArray())
             component = component.getComponentType();
@@ -116,6 +121,7 @@ public final class MessageInputFilter implements ObjectInputFilter {
             return true;
 
         return Message.class.isAssignableFrom(component)
+                || allowRecords && component.isRecord()
                 || Enum.class.isAssignableFrom(component)
                 || ALLOWED_JDK_TYPES.contains(component)
                 || ALLOWED_SUPERCLASSES.contains(component)
