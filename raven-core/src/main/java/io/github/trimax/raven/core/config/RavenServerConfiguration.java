@@ -51,8 +51,18 @@ public final class RavenServerConfiguration extends AbstractRavenConfiguration {
     @Builder.Default
     private final int maxConnections = 1024;
 
+    /**
+     * Whether a client must present a certificate that the {@link #getSslContext() SSL context} trusts (mutual TLS);
+     * a client without one is rejected during the handshake. Requires an SSL context.
+     */
+    @Builder.Default
+    private final boolean requireClientCertificate = false;
+
     @Override
     void validateSpecific() {
+        if (requireClientCertificate && getSslContext() == null)
+            throw new IllegalArgumentException("requireClientCertificate needs an sslContext");
+
         // A zero socket timeout means "wait forever", so a timeout that truncates to 0 ms would disable the protection
         final var timeout = getHandshakeTimeout();
         if (timeout.toMillis() < 1)

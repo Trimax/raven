@@ -119,11 +119,11 @@ class SessionSlotTest {
 
     private Session dial(final String name, final AtomicInteger made, final Duration closeDelay) {
         made.incrementAndGet();
-        return Session.dialing("localhost", listener.getLocalPort(), SETTINGS, new Recorder(name, () -> sleep(closeDelay)));
+        return Session.dialing(new java.net.Socket(), "localhost", listener.getLocalPort(), SETTINGS, new Recorder(name, () -> sleep(closeDelay)));
     }
 
     private Session dialBlockingClose(final String name, final CountDownLatch release) {
-        return Session.dialing("localhost", listener.getLocalPort(), SETTINGS, new Recorder(name, () -> awaitQuietly(release)));
+        return Session.dialing(new java.net.Socket(), "localhost", listener.getLocalPort(), SETTINGS, new Recorder(name, () -> awaitQuietly(release)));
     }
 
     private static void sleep(final Duration duration) {

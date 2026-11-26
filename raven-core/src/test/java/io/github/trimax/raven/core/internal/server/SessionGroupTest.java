@@ -127,7 +127,7 @@ class SessionGroupTest {
     }
 
     private void dialPeer() {
-        final var peer = Session.dialing("localhost", listener.getLocalPort(), SETTINGS, new SilentListener());
+        final var peer = Session.dialing(new java.net.Socket(), "localhost", listener.getLocalPort(), SETTINGS, new SilentListener());
         peers.add(peer);
         peer.start(threads);
     }

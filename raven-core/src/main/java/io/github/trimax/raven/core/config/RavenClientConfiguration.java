@@ -40,6 +40,15 @@ public final class RavenClientConfiguration extends AbstractRavenConfiguration {
     @Builder.Default
     private final Duration connectTimeout = Duration.ofSeconds(10);
 
+    /**
+     * Whether the host name the client connects to must match the server certificate (its subject alternative
+     * names). {@code true} by default and only meaningful with an {@link #getSslContext() SSL context}. Turning it off
+     * lets anyone holding any certificate that the context trusts pose as the server, so keep it on and give the
+     * server certificate a matching {@code SAN}.
+     */
+    @Builder.Default
+    private final boolean verifyHostname = true;
+
     @Override
     void validateSpecific() {
         // A zero socket timeout means "wait forever", and sub-millisecond values truncate to zero

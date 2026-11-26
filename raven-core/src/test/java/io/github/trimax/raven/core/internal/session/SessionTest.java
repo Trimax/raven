@@ -237,7 +237,7 @@ class SessionTest {
 
     @Test
     void sendBeforeOpenIsDropped() {
-        final var session = Session.dialing(InetAddress.getLoopbackAddress().getHostAddress(), 1, SETTINGS, new Recorder());
+        final var session = Session.dialing(new java.net.Socket(), InetAddress.getLoopbackAddress().getHostAddress(), 1, SETTINGS, new Recorder());
 
         assertDoesNotThrow(() -> session.send(new byte[]{1}));
         session.close();
@@ -245,7 +245,7 @@ class SessionTest {
     }
 
     private Session dial(final SessionListener listener) {
-        final var session = Session.dialing("localhost", this.listener.getLocalPort(), SETTINGS, listener);
+        final var session = Session.dialing(new java.net.Socket(), "localhost", this.listener.getLocalPort(), SETTINGS, listener);
         session.start(threads);
         return session;
     }

@@ -1,6 +1,7 @@
 package io.github.trimax.raven.core.config;
 
 import java.time.Duration;
+import javax.net.ssl.SSLContext;
 
 import io.github.trimax.raven.core.codec.JavaSerializationCodec;
 import io.github.trimax.raven.core.codec.MessageCodec;
@@ -61,6 +62,15 @@ abstract class AbstractRavenConfiguration {
     @NonNull
     @Builder.Default
     private final MessageCodec codec = new JavaSerializationCodec();
+
+    /**
+     * Encrypts the connections with TLS: the server accepts and the client dials {@code SSLSocket}s created from this
+     * context, which also holds the keys and the trusted certificates. {@code null} (the default) keeps the traffic
+     * unencrypted, and a peer that does not use TLS cannot talk to one that does. Both sides must agree.
+     *
+     * <p>The handshake runs within the handshake timeout, on the connection's own thread.
+     */
+    private final SSLContext sslContext;
 
     /**
      * Checks the settings shared by server and client, then the subclass's own settings.

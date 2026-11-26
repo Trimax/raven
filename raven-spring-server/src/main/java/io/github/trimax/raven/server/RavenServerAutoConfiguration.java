@@ -4,6 +4,7 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.Set;
+import javax.net.ssl.SSLContext;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.SmartInitializingSingleton;
@@ -38,6 +39,9 @@ import lombok.RequiredArgsConstructor;
  * {@link RavenServerConfiguration}'s values; the idle timeout is off by default). {@code raven.server.trusted-packages}, e.g.
  * {@code com.example,org.acme}, lets the default codec deserialize plain classes of these packages. A
  * {@link MessageCodec} bean, if present, replaces the default Java serialization and the trusted packages are ignored.
+ *
+ * <p>An {@link SSLContext} bean, if present, makes the server accept TLS connections only, and
+ * {@code raven.server.require-client-certificate=true} also demands a trusted certificate from every client.
  */
 @Configuration(proxyBeanMethods = false)
 @ComponentScan(basePackages = "io.github.trimax.raven.server")
@@ -80,12 +84,20 @@ public final class RavenServerAutoConfiguration implements SmartInitializingSing
     @Value("${raven.server.trusted-packages:}")
     private final String trustedPackages;
 
+    /**
+     * Whether a client must present a certificate that the {@link SSLContext} bean trusts (mutual TLS); unset keeps
+     * the core default. Needs an {@link SSLContext} bean.
+     */
+    @Value("${raven.server.require-client-certificate:#{null}}")
+    private final Boolean requireClientCertificate;
+
     private RavenServer server;
 
     @Bean
     public RavenServer ravenServer(final ServerMessageRouter router,
                                    final ObjectProvider<ServerMessageInterceptor> interceptors,
-                                   final ObjectProvider<MessageCodec> codec) {
+                                   final ObjectProvider<MessageCodec> codec,
+                                   final ObjectProvider<SSLContext> sslContext) {
         final var builder = RavenServerConfiguration.builder()
                 .port(port)
                 .bindAddress(resolve(bindAddress))
@@ -107,6 +119,10 @@ public final class RavenServerAutoConfiguration implements SmartInitializingSing
             builder.maxMessageSize(DataSize.parse(maxMessageSize));
 
         builder.codec(codec(codec));
+        // Without the bean the server stays unencrypted
+        builder.sslContext(sslContext.getIfAvailable());
+        if (requireClientCertificate != null)
+            builder.requireClientCertificate(requireClientCertificate);
 
         server = new RavenServer(builder.build());
         return server;

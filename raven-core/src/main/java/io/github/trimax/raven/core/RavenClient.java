@@ -3,6 +3,7 @@ package io.github.trimax.raven.core;
 import io.github.trimax.raven.core.config.RavenClientConfiguration;
 import io.github.trimax.raven.core.internal.client.ClientListener;
 import io.github.trimax.raven.core.internal.client.SessionSlot;
+import io.github.trimax.raven.core.internal.net.RavenClientSocketFactory;
 import io.github.trimax.raven.core.internal.session.Session;
 import io.github.trimax.raven.core.internal.session.SessionSettings;
 import io.github.trimax.raven.core.internal.util.ThreadUtil;
@@ -53,8 +54,8 @@ public final class RavenClient {
      * previous one, or once the attempt has failed. Called from any Raven callback, it returns without waiting.
      */
     public void connect() {
-        ThreadUtil.awaitOutsideCallbacks(session.open(() -> Session.dialing(configuration.getHost(),
-                configuration.getPort(), settings, new ClientListener(configuration))));
+        ThreadUtil.awaitOutsideCallbacks(session.open(() -> Session.dialing(RavenClientSocketFactory.create(configuration),
+                configuration.getHost(), configuration.getPort(), settings, new ClientListener(configuration))));
     }
 
     /**
