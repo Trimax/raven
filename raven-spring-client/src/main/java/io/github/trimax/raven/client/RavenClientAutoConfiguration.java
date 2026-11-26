@@ -2,6 +2,7 @@ package io.github.trimax.raven.client;
 
 import java.util.Arrays;
 import java.util.Set;
+import javax.net.ssl.SSLContext;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.SmartInitializingSingleton;
@@ -34,6 +35,9 @@ import lombok.RequiredArgsConstructor;
  * values; the idle timeout is off by default). {@code raven.client.trusted-packages}, e.g. {@code com.example,org.acme},
  * lets the default codec deserialize plain classes of these packages. A {@link MessageCodec} bean, if present,
  * replaces the default Java serialization and the trusted packages are ignored.
+ *
+ * <p>An {@link SSLContext} bean, if present, makes the client connect over TLS, and
+ * {@code raven.client.verify-hostname=false} turns the check of the server's host name off.
  */
 @Configuration(proxyBeanMethods = false)
 @ComponentScan(basePackages = "io.github.trimax.raven.client")
@@ -73,12 +77,20 @@ public final class RavenClientAutoConfiguration implements SmartInitializingSing
     @Value("${raven.client.trusted-packages:}")
     private final String trustedPackages;
 
+    /**
+     * Whether the server certificate must match the host name; unset keeps the core default, which is {@code true}.
+     * Only matters with an {@link SSLContext} bean.
+     */
+    @Value("${raven.client.verify-hostname:#{null}}")
+    private final Boolean verifyHostname;
+
     private RavenClient client;
 
     @Bean
     public RavenClient ravenClient(final ClientMessageRouter router,
                                    final ObjectProvider<ClientMessageInterceptor> interceptors,
-                                   final ObjectProvider<MessageCodec> codec) {
+                                   final ObjectProvider<MessageCodec> codec,
+                                   final ObjectProvider<SSLContext> sslContext) {
         final var builder = RavenClientConfiguration.builder()
                 .host(host)
                 .port(port)
@@ -98,6 +110,10 @@ public final class RavenClientAutoConfiguration implements SmartInitializingSing
             builder.maxMessageSize(DataSize.parse(maxMessageSize));
 
         builder.codec(codec(codec));
+        // Without the bean the client stays unencrypted
+        builder.sslContext(sslContext.getIfAvailable());
+        if (verifyHostname != null)
+            builder.verifyHostname(verifyHostname);
 
         client = new RavenClient(builder.build());
         return client;

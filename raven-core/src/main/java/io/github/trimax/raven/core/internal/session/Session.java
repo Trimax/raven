@@ -16,6 +16,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.net.ssl.SSLException;
+import javax.net.ssl.SSLSocket;
 
 import io.github.trimax.raven.core.internal.codec.RejectedMessageException;
 import io.github.trimax.raven.core.internal.util.ThreadUtil;
@@ -80,11 +82,12 @@ public final class Session {
     }
 
     /**
-     * A session that connects to {@code host:port} once started. The host is resolved on the session thread, so a
+     * A session that connects the unconnected {@code socket} to {@code host:port} once started. The host is resolved on the session thread, so a
      * slow DNS lookup blocks no caller.
      */
-    public static Session dialing(final String host, final int port, final SessionSettings settings, final SessionListener listener) {
-        return new Session(new Socket(), InetSocketAddress.createUnresolved(host, port), settings, listener);
+    public static Session dialing(final Socket socket, final String host, final int port, final SessionSettings settings,
+                                  final SessionListener listener) {
+        return new Session(socket, InetSocketAddress.createUnresolved(host, port), settings, listener);
     }
 
     /**
@@ -188,6 +191,11 @@ public final class Session {
             socket.connect(new InetSocketAddress(target.getHostString(), target.getPort()), millis(settings.connectTimeout()));
 
         socket.setSoTimeout(millis(settings.handshakeTimeout()));
+        // Done here rather than by the first read or write, so a failure is reported as the TLS handshake. The
+        // timeout above bounds it
+        if (socket instanceof SSLSocket tls)
+            tls.startHandshake();
+
         final var output = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
         final var input = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
 
@@ -217,6 +225,8 @@ public final class Session {
             log.debug("Connection to {} closed: {}", remoteAddress(), ex.getMessage());
         else if (ex instanceof RejectedMessageException rejected)
             log.warn("Rejected {} from {}, closing the connection: {}", rejected.subject(), remoteAddress(), rejected.reason());
+        else if (ex instanceof SSLException)
+            log.warn("TLS handshake with {} failed: {}", remoteAddress(), ex.getMessage());
         else if (ex instanceof ProtocolException || ex instanceof ObjectStreamException)
             log.warn("Closing connection to {}, protocol violation: {}", remoteAddress(), ex.getMessage());
         else if (!announced)

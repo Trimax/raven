@@ -1,19 +1,16 @@
 package io.github.trimax.raven.server;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.Socket;
+import java.security.NoSuchAlgorithmException;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.net.ssl.SSLContext;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -31,7 +28,7 @@ class RavenServerAutoConfigurationTest {
 
     @Test
     void appliesConfiguredBindAddress() throws Exception {
-        final var server = new RavenServerAutoConfiguration(0, "127.0.0.1", null, null, null, null, null, null, null).ravenServer(new ServerMessageRouter(), interceptors(), codecs());
+        final var server = new RavenServerAutoConfiguration(0, "127.0.0.1", null, null, null, null, null, null, null, null).ravenServer(new ServerMessageRouter(), interceptors(), codecs(), sslContexts());
         server.start();
         try (final var socket = new Socket(InetAddress.getLoopbackAddress(), server.getPort())) {
             assertTrue(socket.isConnected());
@@ -41,32 +38,76 @@ class RavenServerAutoConfigurationTest {
     }
 
     @Test
-    void acceptsMissingBindAddress() {
-        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, null, null);
+    void acceptsTlsOnlyWithAnSslContextBean() throws Exception {
+        final var server = new RavenServerAutoConfiguration(0, "127.0.0.1", null, null, null, null, null, null, null, null)
+                .ravenServer(new ServerMessageRouter(), interceptors(), codecs(), sslContext());
+        server.start();
+        try (final var socket = new Socket(InetAddress.getLoopbackAddress(), server.getPort())) {
+            writeHello(socket);
+            socket.setSoTimeout(3_000);
+            // A plain Raven hello is no TLS handshake: the server answers with an alert or closes, never with its own hello
+            final int first = socket.getInputStream().read();
+            assertTrue(first != 'R', "the server answered a plain hello with its own");
+        } finally {
+            server.stop();
+        }
+    }
 
-        assertDoesNotThrow(() -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs()));
+    @Test
+    void answersInPlainTextWithoutAnSslContextBean() throws Exception {
+        final var server = new RavenServerAutoConfiguration(0, "127.0.0.1", null, null, null, null, null, null, null, null)
+                .ravenServer(new ServerMessageRouter(), interceptors(), codecs(), sslContexts());
+        server.start();
+        try (final var socket = new Socket(InetAddress.getLoopbackAddress(), server.getPort())) {
+            socket.setSoTimeout(3_000);
+            assertEquals('R', socket.getInputStream().read());
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    void rejectsClientCertificateRequirementWithoutSslContextBean() {
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, null, null, true);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs(), sslContexts()));
+    }
+
+    @Test
+    void acceptsClientCertificateRequirementWithSslContextBean() {
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, null, null, true);
+
+        assertDoesNotThrow(() -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs(), sslContext()));
+    }
+
+    @Test
+    void acceptsMissingBindAddress() {
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, null, null, null);
+
+        assertDoesNotThrow(() -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs(), sslContexts()));
     }
 
     @Test
     void rejectsUnresolvableBindAddress() {
-        final var configuration = new RavenServerAutoConfiguration(0, "no such host.invalid", null, null, null, null, null, null, null);
+        final var configuration = new RavenServerAutoConfiguration(0, "no such host.invalid", null, null, null, null, null, null, null, null);
 
         final var ex = assertThrows(IllegalArgumentException.class,
-                () -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs()));
+                () -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs(), sslContexts()));
         assertEquals("Invalid raven.server.bind-address: no such host.invalid", ex.getMessage());
     }
 
     @Test
     void rejectsZeroMaxConnections() {
-        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, 0, null, null, null);
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, 0, null, null, null, null);
 
-        assertThrows(IllegalArgumentException.class, () -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs()));
+        assertThrows(IllegalArgumentException.class, () -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs(), sslContexts()));
     }
 
     @Test
     void appliesConfiguredIdleTimeout() throws Exception {
-        final var server = new RavenServerAutoConfiguration(0, "127.0.0.1", null, null, null, null, "300ms", null, null)
-                .ravenServer(new ServerMessageRouter(), interceptors(), codecs());
+        final var server = new RavenServerAutoConfiguration(0, "127.0.0.1", null, null, null, null, "300ms", null, null, null)
+                .ravenServer(new ServerMessageRouter(), interceptors(), codecs(), sslContexts());
         server.start();
         try (final var socket = new Socket(InetAddress.getLoopbackAddress(), server.getPort())) {
             // Completes the handshake, then stays silent
@@ -82,8 +123,8 @@ class RavenServerAutoConfigurationTest {
 
     @Test
     void appliesConfiguredHandshakeTimeout() throws Exception {
-        final var server = new RavenServerAutoConfiguration(0, "127.0.0.1", null, null, "300ms", null, null, null, null)
-                .ravenServer(new ServerMessageRouter(), interceptors(), codecs());
+        final var server = new RavenServerAutoConfiguration(0, "127.0.0.1", null, null, "300ms", null, null, null, null, null)
+                .ravenServer(new ServerMessageRouter(), interceptors(), codecs(), sslContexts());
         server.start();
         try (final var socket = new Socket(InetAddress.getLoopbackAddress(), server.getPort())) {
             // Never sends a hello, so only the handshake timeout ends the connection
@@ -101,37 +142,37 @@ class RavenServerAutoConfigurationTest {
 
     @Test
     void rejectsZeroHandshakeTimeout() {
-        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, "0s", null, null, null, null);
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, "0s", null, null, null, null, null);
 
-        assertThrows(IllegalArgumentException.class, () -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs()));
+        assertThrows(IllegalArgumentException.class, () -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs(), sslContexts()));
     }
 
     @Test
     void rejectsMalformedIdleTimeout() {
-        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, "never", null, null);
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, "never", null, null, null);
 
-        assertThrows(IllegalArgumentException.class, () -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs()));
+        assertThrows(IllegalArgumentException.class, () -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs(), sslContexts()));
     }
 
     @Test
     void acceptsMaxMessageSizeWithUnit() {
-        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, "2KB", null);
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, "2KB", null, null);
 
-        assertDoesNotThrow(() -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs()));
+        assertDoesNotThrow(() -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs(), sslContexts()));
     }
 
     @Test
     void rejectsMalformedMaxMessageSize() {
-        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, "two kilobytes", null);
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, "two kilobytes", null, null);
 
-        assertThrows(IllegalArgumentException.class, () -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs()));
+        assertThrows(IllegalArgumentException.class, () -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs(), sslContexts()));
     }
 
     @Test
     void rejectsZeroMaxMessageSize() {
-        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, "0B", null);
+        final var configuration = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, "0B", null, null);
 
-        assertThrows(IllegalArgumentException.class, () -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs()));
+        assertThrows(IllegalArgumentException.class, () -> configuration.ravenServer(new ServerMessageRouter(), interceptors(), codecs(), sslContexts()));
     }
 
     @Test
@@ -152,8 +193,8 @@ class RavenServerAutoConfigurationTest {
                 return delegate.decode(payload);
             }
         });
-        final var server = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, null, null)
-                .ravenServer(new ServerMessageRouter(), interceptors(), beans.getBeanProvider(MessageCodec.class));
+        final var server = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, null, null, null)
+                .ravenServer(new ServerMessageRouter(), interceptors(), beans.getBeanProvider(MessageCodec.class), sslContexts());
 
         // A broadcast is encoded even when nobody is connected
         server.broadcast(new Ping());
@@ -163,14 +204,14 @@ class RavenServerAutoConfigurationTest {
 
     @Test
     void parsesTrustedPackagesIntoTheDefaultCodec() {
-        final var codec = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, null, " com.example, org.acme,,com.example ").codec(codecs());
+        final var codec = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, null, " com.example, org.acme,,com.example ", null).codec(codecs());
 
         assertEquals(Set.of("com.example", "org.acme"), assertInstanceOf(JavaSerializationCodec.class, codec).getTrustedPackages());
     }
 
     @Test
     void trustsNoPackagesWhenUnset() {
-        final var codec = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, null, "").codec(codecs());
+        final var codec = new RavenServerAutoConfiguration(0, null, null, null, null, null, null, null, "", null).codec(codecs());
 
         assertEquals(Set.of(), assertInstanceOf(JavaSerializationCodec.class, codec).getTrustedPackages());
     }
@@ -181,7 +222,7 @@ class RavenServerAutoConfigurationTest {
         final var beans = new DefaultListableBeanFactory();
         beans.registerSingleton("codec", bean);
 
-        assertSame(bean, new RavenServerAutoConfiguration(0, null, null, null, null, null, null, null, "com.example").codec(beans.getBeanProvider(MessageCodec.class)));
+        assertSame(bean, new RavenServerAutoConfiguration(0, null, null, null, null, null, null, null, "com.example", null).codec(beans.getBeanProvider(MessageCodec.class)));
     }
 
     /** A message without fields. */
@@ -196,6 +237,16 @@ class RavenServerAutoConfigurationTest {
         output.writeBytes("RAVN");
         output.writeInt(2);
         output.flush();
+    }
+
+    private static ObjectProvider<SSLContext> sslContexts() {
+        return new DefaultListableBeanFactory().getBeanProvider(SSLContext.class);
+    }
+
+    private static ObjectProvider<SSLContext> sslContext() throws NoSuchAlgorithmException {
+        final var beans = new DefaultListableBeanFactory();
+        beans.registerSingleton("sslContext", SSLContext.getDefault());
+        return beans.getBeanProvider(SSLContext.class);
     }
 
     private static ObjectProvider<MessageCodec> codecs() {

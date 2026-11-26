@@ -9,6 +9,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 
 import io.github.trimax.raven.core.config.RavenServerConfiguration;
+import io.github.trimax.raven.core.internal.net.RavenServerSocketFactory;
 import io.github.trimax.raven.core.internal.session.Session;
 import io.github.trimax.raven.core.internal.session.SessionSettings;
 import io.github.trimax.raven.core.internal.util.ThreadUtil;
@@ -45,8 +46,7 @@ final class ServerRuntime {
      * @throws IOException if the socket cannot be bound
      */
     static ServerRuntime bind(final RavenServerConfiguration configuration) throws IOException {
-        // Backlog 0 keeps the JDK default; a null bind address listens on all local addresses
-        return new ServerRuntime(configuration, new ServerSocket(configuration.getPort(), 0, configuration.getBindAddress()));
+        return new ServerRuntime(configuration, RavenServerSocketFactory.create(configuration));
     }
 
     void start() {

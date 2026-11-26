@@ -9,6 +9,7 @@ Dedicated to my friend — the best 3D artist I know: https://www.deviantart.com
 
 - Pure Java TCP transport (no Spring required)
 - Virtual threads for scalable I/O
+- Optional TLS (including mutual TLS) from a standard `SSLContext`
 - Length-prefixed frames; Java serialization with a deserialization filter by default, or your own `MessageCodec`
 - Annotation-based message dispatch for Spring applications
 - Hierarchy-aware routing: a handler for a (possibly abstract) base class receives all its subclasses
@@ -47,7 +48,7 @@ Add dependency:
 <dependency>
     <groupId>io.github.trimax</groupId>
     <artifactId>raven-spring-server</artifactId>
-    <version>1.5.0</version>
+    <version>1.6.0</version>
 </dependency>
 ```
 
@@ -116,7 +117,7 @@ Add dependency:
 <dependency>
     <groupId>io.github.trimax</groupId>
     <artifactId>raven-spring-client</artifactId>
-    <version>1.5.0</version>
+    <version>1.6.0</version>
 </dependency>
 ```
 
@@ -178,7 +179,7 @@ Add dependency (it brings `slf4j-api` and `commons-io`):
 <dependency>
     <groupId>io.github.trimax</groupId>
     <artifactId>raven-core</artifactId>
-    <version>1.5.0</version>
+    <version>1.6.0</version>
 </dependency>
 ```
 
@@ -587,11 +588,134 @@ module com.example.app {
 
 On the class path nothing changes. The Spring integration (`raven-spring-*`) has no module descriptor and runs on the class path.
 
+## Secure Connections (TLS)
+
+By default Raven sends everything in plain text. To encrypt a connection and to make the client sure that it talks to
+the right server, give both sides an `SSLContext`. Raven then uses TLS sockets from it, so you get the standard
+guarantees: encryption, integrity, protection against replay, and authentication of the server (and of the client with
+mutual TLS). The context decides the protocol versions, the cipher suites and the key sizes; the JDK defaults are TLS
+1.2 and 1.3. Both sides must agree: a TLS client cannot talk to a plain server, or the other way round, and either
+fails the connection during the handshake.
+
+The messages need no extra work. The handshake runs on the connection's own thread within `handshake-timeout` (server)
+and `connect-timeout` (client), so a slow or silent peer neither blocks the accept loop nor hangs.
+
+### 1. Create the keys
+
+The server needs a private key with a certificate. A self-signed certificate is fine when you control both sides:
+the client then trusts exactly that certificate, which is stricter than trusting every public CA. Give it a
+`SAN` (subject alternative name) for every name or IP address the clients connect to, because the client checks that
+the certificate matches the host (see `verifyHostname` below).
+
+```bash
+# Server: a 4096-bit RSA key and a self-signed certificate valid for a year
+keytool -genkeypair -alias raven-server -keyalg RSA -keysize 4096 -validity 365 \
+  -dname "CN=raven-server" -ext "san=dns:raven.example.com,ip:10.0.0.5" \
+  -keystore server.p12 -storetype PKCS12 -storepass changeit
+
+# Hand the clients the certificate only, never the key
+keytool -exportcert -alias raven-server -keystore server.p12 -storepass changeit -file server.crt
+keytool -importcert -alias raven-server -file server.crt -noprompt \
+  -keystore client-trust.p12 -storetype PKCS12 -storepass changeit
+```
+
+The key size is a property of the certificate: RSA 4096 works, as does an EC key (`-keyalg EC -groupname secp384r1`),
+which is smaller and faster. TLS never encrypts messages with RSA itself; the key only proves the server's identity,
+and the traffic is encrypted with a fresh session key (AES-GCM or ChaCha20) agreed for each connection.
+
+### 2. Server and client with Spring
+
+Declare an `SSLContext` bean on each side; Raven picks it up and nothing else changes.
+
+```java
+@Configuration
+class RavenTlsConfiguration {
+
+    // Server: its own key and certificate
+    @Bean
+    SSLContext sslContext() throws Exception {
+        final var keys = KeyStore.getInstance("PKCS12");
+        try (final var in = new FileInputStream("server.p12")) {
+            keys.load(in, "changeit".toCharArray());
+        }
+        final var keyManagers = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+        keyManagers.init(keys, "changeit".toCharArray());
+
+        final var context = SSLContext.getInstance("TLS");
+        context.init(keyManagers.getKeyManagers(), null, null);
+        return context;
+    }
+}
+```
+
+On the client the context holds the certificates it trusts instead of a key:
+
+```java
+@Bean
+SSLContext sslContext() throws Exception {
+    final var trusted = KeyStore.getInstance("PKCS12");
+    try (final var in = new FileInputStream("client-trust.p12")) {
+        trusted.load(in, "changeit".toCharArray());
+    }
+    final var trustManagers = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+    trustManagers.init(trusted);
+
+    final var context = SSLContext.getInstance("TLS");
+    context.init(null, trustManagers.getTrustManagers(), null);
+    return context;
+}
+```
+
+If you use Spring Boot's SSL bundles, return `sslBundles.getBundle("raven").createSslContext()` instead.
+
+| Property | Default | |
+|---|---|---|
+| `raven.server.require-client-certificate` | `false` | Demand a certificate that the server's context trusts from every client (mutual TLS) |
+| `raven.client.verify-hostname` | `true` | Check that the server certificate matches the host the client connects to |
+
+### 3. Without Spring
+
+```java
+final SSLContext serverContext = ...; // keys: see above
+final SSLContext clientContext = ...; // trusted certificates: see above
+
+final var server = new RavenServer(RavenServerConfiguration.builder()
+    .port(9090)
+    .sslContext(serverContext)
+    .handler(serverHandler)
+    .build());
+
+final var client = new RavenClient(RavenClientConfiguration.builder()
+    .host("raven.example.com")
+    .port(9090)
+    .sslContext(clientContext)
+    .handler(clientHandler)
+    .build());
+```
+
+### Mutual TLS
+
+To admit only known clients, give each client its own key and certificate, put those certificates into the server's
+trust store, and set `requireClientCertificate(true)` (`raven.server.require-client-certificate=true`). Both
+contexts then hold keys *and* trusted certificates: build them with a `KeyManagerFactory` and a
+`TrustManagerFactory`. A client without a trusted certificate is rejected during the handshake and never reaches your
+handlers. Issuing a separate certificate per client lets you revoke one by removing it from the trust store.
+
+### What to avoid
+
+- **Do not disable certificate checks.** A `TrustManager` that accepts everything, or `verifyHostname(false)`, keeps
+  the encryption but lets anyone in the middle pose as the server. `verifyHostname(false)` is only for a context that
+  trusts exactly one certificate which you cannot give a matching `SAN`.
+- **Keep private keys out of the repository** and out of the client: a client only needs the server certificate.
+- **Plan the rotation.** A certificate expires, and with a self-signed one every client has to get the new one in time.
+  With your own small CA you distribute its certificate once and re-issue the server's.
+
 ## Security
 
-Raven has no transport encryption and no authentication. Run it on a trusted network, bind the server to a loopback
-or private interface (`bind-address`), or tunnel it (TLS proxy, VPN, mTLS sidecar). Use interceptors for
-application-level authentication. Deserialization is restricted (see "Message Field Types"), and connections,
+Without an `SSLContext`, Raven has no transport encryption and no authentication: run it on a trusted network, bind
+the server to a loopback or private interface (`bind-address`), or tunnel it (VPN, TLS sidecar). To encrypt the
+connections and authenticate the server, and optionally the clients, configure TLS (see "Secure Connections (TLS)").
+TLS identifies the peer's certificate, not a user: use interceptors for application-level authentication. Deserialization is restricted (see "Message Field Types"), and connections,
 handshakes and message sizes are limited by default.
 
 ## Upgrading from 1.4.x
